@@ -85,10 +85,14 @@ class Graph
         {
             edge_indices_   = new GraphElem[nv_+1];
             vertex_degree_  = new GraphWeight[nv_];
+            M_              = new EdgeTuple[nv_];
+            D_              = new GraphElem[nv_*2];
+            std::fill(D_, D_ + nv_*2, -1);
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target enter data map(to:this[:1])
 #pragma omp target enter data map(alloc:edge_indices_[0:nv_+1])
-#pragma omp target enter data map(alloc:vertex_degree_[0:nv_])
+#pragma omp target enter data map(alloc:D_[0:nv_*2])
+#pragma omp target enter data map(alloc:M_[0:nv_])
 #endif
         }
 
@@ -98,24 +102,25 @@ class Graph
             edge_indices_   = new GraphElem[nv_+1];
             edge_list_      = new Edge[ne_];
             edge_active_    = new EdgeActive[ne_];
+            M_              = new EdgeTuple[nv_];
+            D_              = new GraphElem[nv_*2];
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target enter data map(to:this[:1])
 #pragma omp target enter data map(alloc:edge_indices_[0:nv_+1])
 #pragma omp target enter data map(alloc:edge_list_[0:ne_])
 #pragma omp target enter data map(alloc:edges_active_[0:ne_])
+#pragma omp target enter data map(alloc:D_[0:nv_*2])
+#pragma omp target enter data map(alloc:M_[0:nv_])
 #endif
         }
 
         ~Graph() 
         {
-#ifdef USE_OMP_OFFLOAD
-#pragma omp target exit data map(from:edge_indices_[0:nv_+1])
-#pragma omp target exit data map(from:edges_list_[0:ne_])
-#pragma omp target exit data map(from:edges_active_[0:ne_])
-#endif
             delete [] edge_indices_;
             delete [] edge_list_;
             delete [] edge_active_;
+            delete [] D_;
+            delete [] M_;
         }
        
         /* 
@@ -318,17 +323,14 @@ class Graph
         // maximal edge matching using OpenMP
         void maxematch()
         {
-            // local computation (to be offloaded)
-            std::vector<Edge> max_edges(nv_);
-#ifdef OMP_TARGET_OFFLOAD
-            M_.resize(nv);
-            D_.resize(nv*2);
-            std::fill(D_.begin(), D_.end(), -1);
-            Edge* max_edges_ptr = max_edges.data();
-            EdgeTuple* M_ptr = M_.data();
-            GraphElem* D_ptr = D_.data();
-            #pragma omp target teams distribute parallel for \
-            map(tofrom:mate_[0:nv], max_edges_ptr[0:lnv], M_ptr[0:lnv], D_ptr[0:lnv*2], ghost_count_ptr[0:lnv])
+            Edge* max_edges = new Edge[nv_];
+#ifdef USE_OMP_OFFLOAD
+#pragma omp target enter data map(alloc:max_edges[0:nv_])
+#pragma omp target teams distribute parallel for \
+            map(always, tofrom:mate_[0:nv_])
+#else
+            #pragma omp parallel for default(shared) schedule(static)
+#endif
             for (GraphElem i = 0; i < lnv; i++)
             {
                 GraphElem e0, e1;
@@ -356,10 +358,10 @@ class Graph
                   GraphElem mate_y = mate_[y]; 
                   if (mate_y == x)
                   {
-                    D_ptr[i*2    ] = x;
-                    D_ptr[i*2 + 1] = y;
+                    D_[i*2    ] = x;
+                    D_[i*2 + 1] = y;
                     EdgeTuple et(x, y, max_edges_ptr[i].weight_); 
-                    M_ptr[i] = et;
+                    M_[i] = et;
                     // mark y<->x inactive, because its matched
                     g_->deactivate_edge(y, x);
                     g_->deactivate_edge(x, y);
@@ -378,80 +380,14 @@ class Graph
                         }
                     }
                 }
-            }           
-#else
-#pragma omp declare reduction(merge : std::vector<GraphElem> : omp_out.insert(omp_out.end(), omp_in.begin(), omp_in.end()))
-#pragma omp declare reduction(merge : std::vector<EdgeTuple> : omp_out.insert(omp_out.end(), omp_in.begin(), omp_in.end()))
-#pragma omp parallel for default(shared) reduction(merge: D_, M_) schedule(static)
-	    for (GraphElem i = 0; i < lnv; i++)
-            {
-                GraphElem e0, e1;
-                const GraphElem x = g_->local_to_global(i);
-                const GraphElem lx = g_->global_to_local(x);
-                g_->edge_range(lx, e0, e1);
-                for (GraphElem e = e0; e < e1; e++)
-                {
-                    EdgeActive& edge = g_->get_active_edge(e);
-                    if (edge.active_)
-                    {
-                        if (edge.edge_.weight_ > max_edges[i].weight_)
-                            max_edges[i] = edge.edge_;
-
-                        // break tie using vertex index
-                        if (is_same(edge.edge_.weight_, max_edges[i].weight_))
-                            if (edge.edge_.tail_ > max_edges[i].tail_)
-                                max_edges[i] = edge.edge_;
-                    }
-                }
-                #pragma omp atomic write
-                mate_[lx] = max_edges[i].tail_;
-                const GraphElem y = mate_[lx];
-                
-                // initiate matching request
-                if (y != -1)
-                {
-                    // check if y can be matched
-                    const int y_owner = dg_->get_owner(y);
-                    if (y_owner == rank_)
-                    {
-                        GraphElem mate_y;
-                        #pragma omp atomic read
-                        mate_y = mate_[g_->global_to_local(y)]; 
-                        if (mate_y == x)
-                        {
-                            D_.push_back(x);
-                            D_.push_back(y);
-                            M_.emplace_back(x, y, max_edges[i].weight_);
-                            // mark y<->x inactive, because its matched
-                            deactivate_edge(y, x);
-                            deactivate_edge(x, y);
-                        }
-                    }
-                }
-                else // invalidate all neigboring vertices 
-                {
-                    for (GraphElem e = e0; e < e1; e++)
-                    {
-                        EdgeActive& edge = g_->get_active_edge(e);
-                        if (edge.active_)
-                        {
-                            const GraphElem z = edge.edge_.tail_;
-                            const int z_owner = dg_->get_owner(z);
-                            if (z_owner == rank_)
-                            {
-                                edge.active_ = false;
-                                deactivate_edge(z, x); // invalidate x -- z
-                            }
-                        }
-                    }
-                }
             }
+#ifdef USE_OMP_OFFLOAD
+#pragma omp target exit data map(from:mate_[0:nv_])
+#pragma omp target exit data map(from:D_[0:nv_*2])
+#pragma omp target exit data map(from:M_[0:nv_])
 #endif
         } 
 
-
-
-        // public variables        
         EdgeActive *edge_active_;
         GraphElem *edge_indices_;
         Edge *edge_list_;
@@ -464,8 +400,8 @@ class Graph
     private:
         GraphElem nv_, ne_;
         GraphElem* mate_;
-        std::vector<GraphElem> D_;
-        std::vector<EdgeTuple> M_;
+        GraphElem* D_;
+        EdgeTuple* M_;
 };
 
 // read in binary edge list files using POSIX I/O

@@ -12,12 +12,15 @@
 
 #include "graph.hpp"
 
+unsigned seed;
+
 static std::string inputFileName;
 static GraphElem nvRGG = 0;
 static int generateGraph = 0;
 
 static GraphWeight randomEdgePercent = 0.0;
 static bool randomNumberLCG = false;
+static bool isUnitEdgeWeight = true;
 
 static void parseCommandLine(const int argc, char * const argv[]);
 
@@ -43,23 +46,16 @@ int main(int argc, char *argv[])
     { 
         GenerateRGG gr(nvRGG);
         g = gr.generate(randomNumberLCG, isUnitEdgeWeight, randomEdgePercent);
-
         std::cout << "Generated Random Geometric Graph with d: " << gr.get_d() << std::endl;
-        const GraphElem nv = g->get_nv();
-        const GraphElem ne = g->get_ne();
-        std::cout << "Number of vertices: " << nv << std::endl;
-        std::cout << "Number of edges: " << ne << std::endl;
     }
     else // read input graph
     {
         BinaryEdgeList rm;
-        if (readBalanced == true)
-            g = rm.read_balanced(me, nprocs, ranksPerNode, inputFileName);
-        else
-            g = rm.read(me, nprocs, ranksPerNode, inputFileName);
+        g = rm.read(inputFileName);
+        std::cout << "Input file: " << inputFileName << std::endl;
     }
         
-    g->print_dist_stats();
+    g->print_stats();
     assert(g != nullptr);
 
     td1 = omp_get_wtime();
@@ -79,7 +75,7 @@ int main(int argc, char *argv[])
     double p_tot = t1 - t0;
 
     std::cout << "Execution time (in s) for maximal edge matching: " 
-        << t_tot << std::endl;
+        << p_tot << std::endl;
 
 #if defined(CHECK_RESULTS)    
     g->check_results();
@@ -91,7 +87,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-void parseCommandLine(int argc, char** const argv)
+void parseCommandLine(const int argc, char * const argv[])
 {
   int ret;
   optind = 1;
@@ -118,6 +114,9 @@ void parseCommandLine(int argc, char** const argv)
               case 'l':
                   randomNumberLCG = true;
                   break;
+              case 'u':
+                  isUnitEdgeWeight = false;
+                  break;
               case 'p':
                   randomEdgePercent = atof(optarg);
                   break;
@@ -143,6 +142,12 @@ void parseCommandLine(int argc, char** const argv)
       std::abort();
   }
    
+  if (!generateGraph && !isUnitEdgeWeight) 
+  {
+      std::cerr << "Must specify -g for graph generation first before setting edge weights." << std::endl;
+      std::abort();
+  }  
+  
   if (!generateGraph && randomNumberLCG) 
   {
       std::cerr << "Must specify -n <#vertices> for graph generation using LCG." << std::endl;

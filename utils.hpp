@@ -29,6 +29,59 @@
 #include <cstring>
 #include <numeric>
 
+#ifdef USE_32_BIT_GRAPH
+using GraphElem = int32_t;
+using GraphWeight = float;
+#else
+using GraphElem = int64_t;
+using GraphWeight = double;
+#endif
+
+#ifdef EDGE_AS_VERTEX_PAIR
+struct Edge
+{   
+    GraphElem head_, tail_;
+    GraphWeight weight_;
+    
+    Edge(): head_(-1), tail_(-1), weight_(0.0) 
+    {}
+};
+#else
+struct Edge
+{   
+    GraphElem tail_;
+    GraphWeight weight_;
+    
+    Edge(): tail_(-1), weight_(0.0) {}
+};
+#endif
+
+struct EdgeActive
+{
+    Edge* edge_;
+    bool active_;
+
+    EdgeActive(Edge* edge): edge_(edge), active_(true) {}
+    EdgeActive(): edge_(nullptr), active_(true) {}
+};
+
+struct EdgeTuple
+{
+    GraphElem ij_[2];
+    GraphWeight w_;
+
+    EdgeTuple(GraphElem i, GraphElem j, GraphWeight w): 
+        ij_{i, j}, w_(w)
+    {}
+    EdgeTuple(GraphElem i, GraphElem j): 
+        ij_{i, j}, w_(1.0) 
+    {}
+    EdgeTuple(): 
+        ij_{-1, -1}, w_(0.0)
+    {}
+};
+
+
 extern unsigned seed;
 
 // Is nprocs a power-of-2?

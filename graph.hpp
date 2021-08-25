@@ -15,60 +15,9 @@
 
 #include <omp.h>
 #include <cstdlib>
-#include "utils.hpp"
 #include <unistd.h>
 
-#ifdef USE_32_BIT_GRAPH
-using GraphElem = int32_t;
-using GraphWeight = float;
-#else
-using GraphElem = int64_t;
-using GraphWeight = double;
-#endif
-
-#ifdef EDGE_AS_VERTEX_PAIR
-struct Edge
-{   
-    GraphElem head_, tail_;
-    GraphWeight weight_;
-    
-    Edge(): head_(-1), tail_(-1), weight_(0.0) 
-    {}
-};
-#else
-struct Edge
-{   
-    GraphElem tail_;
-    GraphWeight weight_;
-    
-    Edge(): tail_(-1), weight_(0.0) {}
-};
-#endif
-
-struct EdgeActive
-{
-    Edge const& edge_;
-    bool active_;
-    
-    EdgeActive(Edge const& edge): edge_(edge), active_(true) {}
-};
-
-
-struct EdgeTuple
-{
-    GraphElem ij_[2];
-    GraphWeight w_;
-
-    EdgeTuple(GraphElem i, GraphElem j, GraphWeight w): 
-        ij_{i, j}, w_(w)
-    {}
-    EdgeTuple(GraphElem i, GraphElem j): 
-        ij_{i, j}, w_(1.0) 
-    {}
-    EdgeTuple(): 
-        ij_{-1, -1}, w_(0.0)
-    {}
-};
+#include "utils.hpp"
 
 class Graph
 {
@@ -80,11 +29,9 @@ class Graph
                 
         Graph(GraphElem nv): 
             nv_(nv), ne_(-1), 
-            edge_list_(nullptr), edge_weights_(nullptr), 
-            edge_active_(nullptr), D_(nullptr), M_(nullptr)
+            edge_list_(nullptr), edge_active_(nullptr)
         {
             edge_indices_   = new GraphElem[nv_+1];
-            vertex_degree_  = new GraphWeight[nv_];
             M_              = new EdgeTuple[nv_];
             D_              = new GraphElem[nv_*2];
             std::fill(D_, D_ + nv_*2, -1);
@@ -108,7 +55,7 @@ class Graph
 #pragma omp target enter data map(to:this[:1])
 #pragma omp target enter data map(alloc:edge_indices_[0:nv_+1])
 #pragma omp target enter data map(alloc:edge_list_[0:ne_])
-#pragma omp target enter data map(alloc:edges_active_[0:ne_])
+#pragma omp target enter data map(alloc:edge_active_[0:ne_])
 #pragma omp target enter data map(alloc:D_[0:nv_*2])
 #pragma omp target enter data map(alloc:M_[0:nv_])
 #endif
@@ -131,7 +78,7 @@ class Graph
             ne_ = g.ne_;
             memcpy(edge_list_, g.edge_list_, sizeof(Edge)*ne_); 
             memcpy(edge_indices_, g.edge_indices_, sizeof(GraphElem)*(nv_+1)); 
-            memcpy(edge_active_, g.edge_active_, sizeof(GraphElem)*(ne_+1)); 
+            memcpy(edge_active_, g.edge_active_, sizeof(EdgeActive)*ne_); 
         }
         #endif
         */
@@ -161,11 +108,8 @@ class Graph
         { 
             ne_ = ne;
             edge_list_      = new Edge[ne_];
-            edge_weights_   = new GraphWeight[ne_];
             edge_active_    = new EdgeActive[ne_];
 #ifdef USE_OMP_OFFLOAD
-#pragma omp target enter data map(to:this[:1])
-#pragma omp target enter data map(alloc:edge_indices_[0:nv_+1])
 #pragma omp target enter data map(alloc:edge_list_[0:ne_])
 #pragma omp target enter data map(alloc:edge_active_[0:ne_])
 #endif
@@ -183,10 +127,10 @@ class Graph
         Edge& set_edge(GraphElem const index)
         { return edge_list_[index]; }       
                 
-        EdgeActive const& get_active_edge(GraphElem const index)
+        EdgeActive const& get_active_edge(GraphElem const index) const
         { return edge_active_[index]; }
          
-        EdgeActive& set_active_edge(GraphElem const index)
+        EdgeActive& get_active_edge(GraphElem const index)
         { return edge_active_[index]; }
  
         // print edge list (with weights)
@@ -224,7 +168,7 @@ class Graph
         void print_M() const
         {
             std::cout << "Matched vertices: " << std::endl;
-            for (GraphElem i = 0; i < M_.size(); i++)
+            for (GraphElem i = 0; i < nv_; i++)
                 std::cout << M_[i].ij_[0] << " ---- " << M_[i].ij_[1] << std::endl;
         }
          
@@ -233,7 +177,7 @@ class Graph
         void check_results()
         {
             bool success = true;
-            for (GraphElem i = 0; i < M_.size(); i++)
+            for (GraphElem i = 0; i < nv_; i++)
             {                
                 if ((mate_[mate_[M_[i].ij_[0]]] != M_[i].ij_[0])
                         || (mate_[mate_[M_[i].ij_[1]]] != M_[i].ij_[1]))
@@ -298,11 +242,11 @@ class Graph
         inline void deactivate_edge(GraphElem x, GraphElem y)
         {
             GraphElem e0, e1;
-            g_->edge_range(x, e0, e1);
+            edge_range(x, e0, e1);
             for (GraphElem e = e0; e < e1; e++)
             {
-                EdgeActive& edge = g_->get_active_edge(e);
-                if (edge.edge_.tail_ == y && edge.active_)
+                EdgeActive& edge = get_active_edge(e);
+                if (edge.edge_->tail_ == y && edge.active_)
                 {
                     edge.active_ = false;
                     break;
@@ -312,10 +256,10 @@ class Graph
 
         bool is_matched(const GraphElem v)
         {
-            auto found = std::find_if(M_.begin(), M_.end(), 
+            auto found = std::find_if(M_, M_ + nv_, 
                     [&](EdgeTuple const& et) 
                     { return ((et.ij_[0] == v) || (et.ij_[1] == v)); });
-            if (found == std::end(M_))
+            if (found == M_ + nv_)
                 return false;
             return true;
         }
@@ -331,52 +275,52 @@ class Graph
 #else
             #pragma omp parallel for default(shared) schedule(static)
 #endif
-            for (GraphElem i = 0; i < lnv; i++)
+            for (GraphElem i = 0; i < nv_; i++)
             {
                 GraphElem e0, e1;
-                g_->edge_range(i, e0, e1);
+                edge_range(i, e0, e1);
                 for (GraphElem e = e0; e < e1; e++)
                 {
-                    EdgeActive& edge = g_->get_active_edge(e);
+                    EdgeActive& edge = get_active_edge(e);
                     if (edge.active_)
                     {
-                        if (edge.edge_.weight_ > max_edges_ptr[i].weight_)
-                            max_edges_ptr[i] = edge.edge_;
+                        if (edge.edge_->weight_ > max_edges[i].weight_)
+                            max_edges[i] = *edge.edge_;
                         // break tie using vertex index
-                        if (edge.edge_.weight_ == max_edges_ptr[i].weight_)
+                        if (edge.edge_->weight_ == max_edges[i].weight_)
                         {
-                            if (edge.edge_.tail_ > max_edges_ptr[i].tail_)
-                                max_edges_ptr[i] = edge.edge_;
+                            if (edge.edge_->tail_ > max_edges[i].tail_)
+                                max_edges[i] = *edge.edge_;
                         }
                     }
                 }
-                mate_[i] = max_edges_ptr[i].tail_;
+                mate_[i] = max_edges[i].tail_;
                 const GraphElem y = mate_[i];
                 // initiate matching request
                 if (y != -1)
                 {
                   GraphElem mate_y = mate_[y]; 
-                  if (mate_y == x)
+                  if (mate_y == i)
                   {
-                    D_[i*2    ] = x;
+                    D_[i*2    ] = i;
                     D_[i*2 + 1] = y;
-                    EdgeTuple et(x, y, max_edges_ptr[i].weight_); 
+                    EdgeTuple et(i, y, max_edges[i].weight_); 
                     M_[i] = et;
-                    // mark y<->x inactive, because its matched
-                    g_->deactivate_edge(y, x);
-                    g_->deactivate_edge(x, y);
+                    // mark y<->i inactive, because its matched
+                    deactivate_edge(y, i);
+                    deactivate_edge(i, y);
                   }
                 }
                 else // invalidate all neigboring vertices 
                 {
                     for (GraphElem e = e0; e < e1; e++)
                     {
-                        EdgeActive& edge = g_->get_active_edge(e);
+                        EdgeActive& edge = get_active_edge(e);
                         if (edge.active_)
                         {
-                          const GraphElem z = edge.edge_.tail_;
+                          const GraphElem z = edge.edge_->tail_;
                           edge.active_ = false;
-                          g_->deactivate_edge(z, x); // invalidate x -- z
+                          deactivate_edge(z, i); // invalidate x -- z
                         }
                     }
                 }
@@ -504,7 +448,7 @@ class BinaryEdgeList
             free(vidx);
 #else
             if (tot_bytes < INT_MAX)
-                file.read(&g->edge_list_[0], tot_bytes);
+                file.read(reinterpret_cast<char*>(&g->edge_list_[0]), tot_bytes);
             else 
             {
                 int chunk_bytes=INT_MAX;
@@ -513,7 +457,7 @@ class BinaryEdgeList
 
                 while (transf_bytes < tot_bytes)
                 {
-                    file.read(&curr_pointer[offset], tot_bytes);
+                    file.read(reinterpret_cast<char*>(&curr_pointer[offset]), tot_bytes);
                     transf_bytes += chunk_bytes;
                     offset += chunk_bytes;
                     curr_pointer += chunk_bytes;
@@ -533,7 +477,7 @@ class BinaryEdgeList
             // store reference to edge and active info
             // and ensure weights are positive
             for (GraphElem i=0; i < N_; i++)
-                g->edge_active_ = g->edge_list_[i];
+                g->edge_active_[i].edge_ = &(g->edge_list_[i]);
             
             return g;
         }
@@ -755,7 +699,7 @@ class GenerateRGG
 #endif
                 for (GraphElem j = e0; j < e1; j++) {
                     Edge &edge = g->set_edge(j);
-                    g->edge_active_[j] = edge;
+                    g->edge_active_[j].edge_ = &edge;
 
                     assert(ePos == j);
                     assert(i == edgeList[ePos].ij_[0]);

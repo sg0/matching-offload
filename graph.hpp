@@ -175,7 +175,7 @@ class Graph
                 if ((mate_[mate_[M_[i].ij_[0]]] != M_[i].ij_[0])
                         || (mate_[mate_[M_[i].ij_[1]]] != M_[i].ij_[1]))
                 {
-                    std::cout << "Validation FAILED." << std::endl; 
+                    std::cout << "\033[1;31mValidation FAILED.\033[0m" << std::endl; 
                     std::cout << "mate_[mate_[" << M_[i].ij_[0] << "]] != " << M_[i].ij_[0] << std::endl;
                     std::cout << "mate_[mate_[" << M_[i].ij_[1] << "]] != " << M_[i].ij_[1] << std::endl;
                     success = false;
@@ -183,7 +183,7 @@ class Graph
                 }
             }
             if (success)
-                std::cout << "Validation SUCCESS." << std::endl;
+                std::cout << "\032[1;31mValidation SUCCESS.\032[0m" << std::endl;
         }
         
         // print statistics about edge distribution

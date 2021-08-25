@@ -76,19 +76,6 @@ class Graph
             delete [] mate_;
         }
        
-        /* 
-        #ifdef USE_OMP_OFFLOAD                  
-        Graph(const Graph &g) 
-        {
-            nv_ = g.nv_;
-            ne_ = g.ne_;
-            memcpy(edge_list_, g.edge_list_, sizeof(Edge)*ne_); 
-            memcpy(edge_indices_, g.edge_indices_, sizeof(GraphElem)*(nv_+1)); 
-            memcpy(edge_active_, g.edge_active_, sizeof(EdgeActive)*ne_); 
-        }
-        #endif
-        */
-
         Graph(const Graph &other) = delete;
         Graph& operator=(const Graph& d) = delete;
  

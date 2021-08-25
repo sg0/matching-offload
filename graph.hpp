@@ -33,7 +33,6 @@ class Graph
         {
             edge_indices_   = new GraphElem[nv_+1];
             M_              = new EdgeTuple[nv_];
-            M_              = new EdgeTuple[nv_];
             D_              = new GraphElem[nv_*2];
             mate_           = new GraphElem[nv_];
             std::fill(D_, D_ + nv_*2, -1);

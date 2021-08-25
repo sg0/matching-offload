@@ -43,7 +43,7 @@ struct Edge
     GraphElem head_, tail_;
     GraphWeight weight_;
     
-    Edge(): head_(-1), tail_(-1), weight_(0.0) 
+    Edge(): head_(-1), tail_(-1), weight_(-1.0) 
     {}
 };
 #else
@@ -52,7 +52,7 @@ struct Edge
     GraphElem tail_;
     GraphWeight weight_;
     
-    Edge(): tail_(-1), weight_(0.0) {}
+    Edge(): tail_(-1), weight_(-1.0) {}
 };
 #endif
 

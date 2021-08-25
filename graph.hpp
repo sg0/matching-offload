@@ -33,13 +33,17 @@ class Graph
         {
             edge_indices_   = new GraphElem[nv_+1];
             M_              = new EdgeTuple[nv_];
+            M_              = new EdgeTuple[nv_];
             D_              = new GraphElem[nv_*2];
+            mate_           = new GraphElem[nv_];
             std::fill(D_, D_ + nv_*2, -1);
+            std::fill(mate_, mate_ + nv_, -1);
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target enter data map(to:this[:1])
 #pragma omp target enter data map(alloc:edge_indices_[0:nv_+1])
 #pragma omp target enter data map(alloc:D_[0:nv_*2])
 #pragma omp target enter data map(alloc:M_[0:nv_])
+#pragma omp target enter data map(alloc:mate_[0:nv_])
 #endif
         }
 
@@ -51,6 +55,7 @@ class Graph
             edge_active_    = new EdgeActive[ne_];
             M_              = new EdgeTuple[nv_];
             D_              = new GraphElem[nv_*2];
+            mate_           = new GraphElem[nv_];
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target enter data map(to:this[:1])
 #pragma omp target enter data map(alloc:edge_indices_[0:nv_+1])
@@ -58,6 +63,7 @@ class Graph
 #pragma omp target enter data map(alloc:edge_active_[0:ne_])
 #pragma omp target enter data map(alloc:D_[0:nv_*2])
 #pragma omp target enter data map(alloc:M_[0:nv_])
+#pragma omp target enter data map(alloc:mate_[0:nv_])
 #endif
         }
 
@@ -68,6 +74,7 @@ class Graph
             delete [] edge_active_;
             delete [] D_;
             delete [] M_;
+            delete [] mate_;
         }
        
         /* 
@@ -186,7 +193,7 @@ class Graph
                     std::cout << "mate_[mate_[" << M_[i].ij_[0] << "]] != " << M_[i].ij_[0] << std::endl;
                     std::cout << "mate_[mate_[" << M_[i].ij_[1] << "]] != " << M_[i].ij_[1] << std::endl;
                     success = false;
-
+                    break;
                 }
             }
             if (success)
@@ -273,7 +280,7 @@ class Graph
 #pragma omp target teams distribute parallel for \
             map(always, tofrom:mate_[0:nv_])
 #else
-            #pragma omp parallel for default(shared) schedule(static)
+#pragma omp parallel for default(shared) schedule(static)
 #endif
             for (GraphElem i = 0; i < nv_; i++)
             {

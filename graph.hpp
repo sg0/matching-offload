@@ -55,6 +55,8 @@ class Graph
             M_              = new EdgeTuple[nv_];
             D_              = new GraphElem[nv_*2];
             mate_           = new GraphElem[nv_];
+            std::fill(D_, D_ + nv_*2, -1);
+            std::fill(mate_, mate_ + nv_, -1);
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target enter data map(to:this[:1])
 #pragma omp target enter data map(alloc:edge_indices_[0:nv_+1])
@@ -251,19 +253,16 @@ class Graph
         // maximal edge matching using OpenMP
         void maxematch()
         {
-            Edge* max_edges = new Edge[nv_];
             // phase #1
 #ifdef USE_OMP_OFFLOAD
-#pragma omp target enter data map(alloc:max_edges[0:nv_])
 #pragma omp target teams distribute parallel for \
-            map(always, tofrom:mate_[0:nv_], mcount_) \
-            reduction(+:mcount_)
+            map(always, tofrom:mate_[0:nv_], mcount_) 
 #else
-#pragma omp parallel for default(shared) schedule(static) \
-            reduction(+:mcount_)
+#pragma omp parallel for default(shared) schedule(static) 
 #endif
             for (GraphElem i = 0; i < nv_; i++)
             {
+                Edge max_edge;
                 GraphElem e0, e1;
                 edge_range(i, e0, e1);
                 for (GraphElem e = e0; e < e1; e++)
@@ -271,26 +270,25 @@ class Graph
                     EdgeActive& edge = get_active_edge(e);
                     if (edge.active_)
                     {
-                        if (edge.edge_->weight_ > max_edges[i].weight_)
-                            max_edges[i] = *edge.edge_;
+                        if (edge.edge_->weight_ > max_edge.weight_)
+                            max_edge = *edge.edge_;
                         // break tie using vertex index
-                        if (edge.edge_->weight_ == max_edges[i].weight_)
+                        if (edge.edge_->weight_ == max_edge.weight_)
                         {
-                            if (edge.edge_->tail_ > max_edges[i].tail_)
-                                max_edges[i] = *edge.edge_;
+                            if (edge.edge_->tail_ > max_edge.tail_)
+                                max_edge = *edge.edge_;
                         }
                     }
                 }
-                mate_[i] = max_edges[i].tail_;
-                const GraphElem y = mate_[i];
+                
+                const GraphElem y = mate_[i] = max_edge.tail_;
                 
                 // initiate matching request
-                GraphElem mate_y = mate_[y]; 
-                if (mate_y == i)
+                if (mate_[y] == i)
                 {
                   D_[mcount_*2    ] = i;
                   D_[mcount_*2 + 1] = y;
-                  EdgeTuple et(i, y, max_edges[i].weight_); 
+                  EdgeTuple et(i, y, max_edge.weight_); 
                   M_[mcount_] = et;
 #pragma omp atomic update
                   mcount_++;
@@ -373,7 +371,7 @@ class Graph
                   {
                     D_[mcount_*2    ] = x;
                     D_[mcount_*2 + 1] = y;
-                    EdgeTuple et(x, y, max_edges[x].weight_); 
+                    EdgeTuple et(x, y, x_max_edge.weight_); 
                     M_[mcount_] = et;
 #pragma omp atomic update
                     mcount_++;

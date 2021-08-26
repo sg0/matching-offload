@@ -256,9 +256,11 @@ class Graph
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target enter data map(alloc:max_edges[0:nv_])
 #pragma omp target teams distribute parallel for \
-            map(always, tofrom:mate_[0:nv_], mcount_)
+            map(always, tofrom:mate_[0:nv_], mcount_) \
+            reduction(+:mcount_)
 #else
-#pragma omp parallel for default(shared) schedule(static)
+#pragma omp parallel for default(shared) schedule(static) \
+            reduction(+:mcount_)
 #endif
             for (GraphElem i = 0; i < nv_; i++)
             {
@@ -281,46 +283,32 @@ class Graph
                 }
                 mate_[i] = max_edges[i].tail_;
                 const GraphElem y = mate_[i];
+                
                 // initiate matching request
-                if (y != -1)
+                GraphElem mate_y = mate_[y]; 
+                if (mate_y == i)
                 {
-                  GraphElem mate_y = mate_[y]; 
-                  if (mate_y == i)
-                  {
-                    D_[mcount_*2    ] = i;
-                    D_[mcount_*2 + 1] = y;
-                    EdgeTuple et(i, y, max_edges[i].weight_); 
-                    M_[mcount_] = et;
-                    mcount_++;
+                  D_[mcount_*2    ] = i;
+                  D_[mcount_*2 + 1] = y;
+                  EdgeTuple et(i, y, max_edges[i].weight_); 
+                  M_[mcount_] = et;
+#pragma omp atomic update
+                  mcount_++;
 
-                    // mark y<->i inactive, because its matched
-                    deactivate_edge(y, i);
-                    deactivate_edge(i, y);
-                  }
-                }
-                else // invalidate all neigboring vertices 
-                {
-                    for (GraphElem e = e0; e < e1; e++)
-                    {
-                        EdgeActive& edge = get_active_edge(e);
-                        if (edge.active_)
-                        {
-                          const GraphElem z = edge.edge_->tail_;
-                          edge.active_ = false;
-                          deactivate_edge(z, i); // invalidate x -- z
-                        }
-                    }
+                  // mark y<->i inactive, because its matched
+                  deactivate_edge(y, i);
+                  deactivate_edge(i, y);
                 }
             }
 
             GraphElem idx = 0; 
 #ifdef USE_OMP_OFFLOAD
-            GraphElem lo = 0, hi = 0, past_mcount = mcount_;
+            GraphElem lo = 0, hi = 0, past_mcount = 0;
 #endif
             // phase 2
             while(1)
             {     
-              if (idx >= mcount_*2)
+              if (idx >= mcount_) 
                 break;
 
               GraphElem v = D_[idx];
@@ -330,7 +318,9 @@ class Graph
               edge_range(v, e0, e1);
 
 #ifdef USE_OMP_OFFLOAD
+              past_mcount = mcount_;
 #pragma omp target teams distribute parallel for \
+          map(always, tofrom:mcount_)
 #else
 #pragma omp parallel for default(shared) schedule(static)
 #endif
@@ -381,10 +371,11 @@ class Graph
 
                   if (mate_[y] == x) // matched
                   {
-                    D_[mcount_*2]     = x;
+                    D_[mcount_*2    ] = x;
                     D_[mcount_*2 + 1] = y;
                     EdgeTuple et(x, y, max_edges[x].weight_); 
                     M_[mcount_] = et;
+#pragma omp atomic update
                     mcount_++;
                     deactivate_edge(x, y);
                   }
@@ -396,8 +387,8 @@ class Graph
                 lo = past_mcount;
                 hi = mcount_;
 #pragma omp target update(from:D_[lo:hi])
+#pragma omp target update(from:M_[lo:hi])
               }
-              past_mcount = mcount_;
 #endif
             }
 

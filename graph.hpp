@@ -271,6 +271,7 @@ class Graph
             GraphElem e0, e1;
             edge_range(v, e0, e1);
 #ifdef USE_OMP_OFFLOAD
+#pragma omp atomic read
               past_mcount = mcount_;
 #pragma omp target teams distribute parallel for \
           map(always, tofrom:mcount_, to_:v)
@@ -300,10 +301,13 @@ class Graph
 
                     if (mate_[y] == x) // matched
                     {
-                      D_[mcount_*2    ] = x;
-                      D_[mcount_*2 + 1] = y;
+                      GraphElem idx;
+#pragma omp atomic read
+                      idx = mcount_;
+                      D_[idx*2    ] = x;
+                      D_[idx*2 + 1] = y;
                       EdgeTuple et(x, y, x_max_edge.weight_); 
-                      M_[mcount_] = et;
+                      M_[idx] = et;
 #pragma omp atomic update
                       mcount_++;
 
@@ -345,22 +349,27 @@ class Graph
                 Edge max_edge;
                 heaviest_edge_unmatched(v, max_edge);
                 GraphElem u = mate_[v] = max_edge.tail_; // v's mate
-                
-                // is mate[u] == v?
-                if (mate_[u] == v) // matched
-                {
-                  D_[mcount_*2    ] = u;
-                  D_[mcount_*2 + 1] = v;
-                  EdgeTuple et(u, v, max_edge.weight_); 
-                  M_[mcount_] = et;
-#pragma omp atomic update
-                  mcount_++;
 
-                  deactivate_edge(v, u);
-                  deactivate_edge(u, v);
+                if (u != -1)
+                {  
+                  // is mate[u] == v?
+                  if (mate_[u] == v) // matched
+                  {
+                    GraphElem idx;
+#pragma omp atomic read
+                    idx = mcount_;
+                    D_[idx*2    ] = u;
+                    D_[idx*2 + 1] = v;
+                    EdgeTuple et(u, v, max_edge.weight_); 
+                    M_[idx] = et;
+#pragma omp atomic update
+                    mcount_++;
+
+                    deactivate_edge(v, u);
+                    deactivate_edge(u, v);
+                  }
                 }
             }
-
 
             // phase 2: update matching and match remaining vertices
             GraphElem idx = 0; 

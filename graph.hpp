@@ -165,7 +165,12 @@ class Graph
         {
             std::cout << "Matched vertices: " << std::endl;
             for (GraphElem i = 0; i < mcount_; i++)
+            {
+              if ((M_[i].ij_[0] != -1) && (M_[i].ij_[0] != -1))
+              {
                 std::cout << M_[i].ij_[0] << " ---- " << M_[i].ij_[1] << std::endl;
+              }
+            }
         }
          
         // if mate[mate[v]] == v then
@@ -174,16 +179,19 @@ class Graph
         {
             bool success = true;
             for (GraphElem i = 0; i < mcount_; i++)
-            {                
+            {
+              if ((M_[i].ij_[0] != -1) && (M_[i].ij_[0] != -1))
+              {
                 if ((mate_[mate_[M_[i].ij_[0]]] != M_[i].ij_[0])
-                        || (mate_[mate_[M_[i].ij_[1]]] != M_[i].ij_[1]))
+                    || (mate_[mate_[M_[i].ij_[1]]] != M_[i].ij_[1]))
                 {
-                    std::cout << "\033[1;31mValidation FAILED.\033[0m" << std::endl; 
-                    std::cout << "mate_[mate_[" << M_[i].ij_[0] << "]] != " << M_[i].ij_[0] << std::endl;
-                    std::cout << "mate_[mate_[" << M_[i].ij_[1] << "]] != " << M_[i].ij_[1] << std::endl;
-                    success = false;
-                    break;
+                  std::cout << "\033[1;31mValidation FAILED.\033[0m" << std::endl; 
+                  std::cout << "mate_[mate_[" << M_[i].ij_[0] << "]] != " << M_[i].ij_[0] << std::endl;
+                  std::cout << "mate_[mate_[" << M_[i].ij_[1] << "]] != " << M_[i].ij_[1] << std::endl;
+                  success = false;
+                  break;
                 }
+              }
             }
             if (success)
                 std::cout << "\033[1;32mValidation SUCCESS.\033[0m" << std::endl;

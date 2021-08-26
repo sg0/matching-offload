@@ -233,7 +233,86 @@ class Graph
           std::cout << "Standard deviation: " << pstddev << std::endl;
           std::cout << "--------------------------------------" << std::endl;
         }
+                
         
+        void heaviest_edge_unmatched(GraphElem v, Edge& max_edge, GraphElem x = -1)
+        {
+            GraphElem e0, e1;
+            edge_range(v, e0, e1);
+
+            for (GraphElem e = e0; e < e1; e++)
+            {
+                EdgeActive& edge = get_active_edge(e);
+                if (edge.active_)
+                {
+                    if (edge.edge_->tail_ == x)
+                        continue;
+
+                    if ((mate_[edge.edge_->tail_] == -1) 
+                            || (mate_[mate_[edge.edge_->tail_]] 
+                                != edge.edge_->tail_))
+                    {
+                        if (edge.edge_->weight_ > max_edge.weight_)
+                            max_edge = *edge.edge_;
+
+                        // break tie using vertex index
+                        if (is_same(edge.edge_->weight_, max_edge.weight_))
+                            if (edge.edge_->tail_ > max_edge.tail_)
+                                max_edge = *edge.edge_;
+                    }
+                }
+            }
+        }
+
+        // check if mate[x] = v and mate[v] != x
+        // if yes, compute mate[x]
+        void update_mate(GraphElem v)
+        {
+            GraphElem e0, e1;
+            edge_range(v, e0, e1);
+#ifdef USE_OMP_OFFLOAD
+              past_mcount = mcount_;
+#pragma omp target teams distribute parallel for \
+          map(always, tofrom:mcount_, to_:v)
+#else
+#pragma omp parallel for default(shared) schedule(static)
+#endif
+            for (GraphElem e = e0; e < e1; e++)
+            {
+                Edge const& edge = get_edge(e);
+                GraphElem const& x = edge.tail_;
+
+                // check if vertex is already matched
+                auto result = std::find_if(M_, M_ + nv_, 
+                        [&](EdgeTuple const& et) 
+                        { return (((et.ij_[0] == v) || (et.ij_[1] == v)) && 
+                                ((et.ij_[0] == x) || (et.ij_[1] == x))); });
+                
+                //  mate[x] == v and (v,x) not in M
+                if ((mate_[x] == v) && (result == (M_ + nv_)))
+                {
+                    Edge x_max_edge;
+                    heaviest_edge_unmatched(x, x_max_edge, v);
+                    GraphElem y = mate_[x] = x_max_edge.tail_;
+
+                    if (y == -1) // if x has no neighbor other than v
+                        continue;
+
+                    if (mate_[y] == x) // matched
+                    {
+                      D_[mcount_*2    ] = x;
+                      D_[mcount_*2 + 1] = y;
+                      EdgeTuple et(x, y, x_max_edge.weight_); 
+                      M_[mcount_] = et;
+#pragma omp atomic update
+                      mcount_++;
+
+                      deactivate_edge(x, y);
+                    }
+                }
+            }
+        }
+
         // deactivate edge x -- y
         inline void deactivate_edge(GraphElem x, GraphElem y)
         {
@@ -254,145 +333,65 @@ class Graph
         void maxematch()
         {
             // phase #1
+            // part 1: compute max edge for every vertex
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target teams distribute parallel for \
             map(always, tofrom:mate_[0:nv_], mcount_) 
 #else
 #pragma omp parallel for default(shared) schedule(static) 
 #endif
-            for (GraphElem i = 0; i < nv_; i++)
+            for (GraphElem v = 0; v < nv_; v++)
             {
                 Edge max_edge;
-                GraphElem e0, e1;
-                edge_range(i, e0, e1);
-                for (GraphElem e = e0; e < e1; e++)
-                {
-                    EdgeActive& edge = get_active_edge(e);
-                    if (edge.active_)
-                    {
-                        if (edge.edge_->weight_ > max_edge.weight_)
-                            max_edge = *edge.edge_;
-                        // break tie using vertex index
-                        if (edge.edge_->weight_ == max_edge.weight_)
-                        {
-                            if (edge.edge_->tail_ > max_edge.tail_)
-                                max_edge = *edge.edge_;
-                        }
-                    }
-                }
+                heaviest_edge_unmatched(v, max_edge);
+                GraphElem u = mate_[v] = max_edge.tail_; // v's mate
                 
-                const GraphElem y = mate_[i] = max_edge.tail_;
-                
-                // initiate matching request
-                if (mate_[y] == i)
+                // is mate[u] == v?
+                if (mate_[u] == v) // matched
                 {
-                  D_[mcount_*2    ] = i;
-                  D_[mcount_*2 + 1] = y;
-                  EdgeTuple et(i, y, max_edge.weight_); 
+                  D_[mcount_*2    ] = u;
+                  D_[mcount_*2 + 1] = v;
+                  EdgeTuple et(u, v, max_edge.weight_); 
                   M_[mcount_] = et;
 #pragma omp atomic update
                   mcount_++;
 
-                  // mark y<->i inactive, because its matched
-                  deactivate_edge(y, i);
-                  deactivate_edge(i, y);
+                  deactivate_edge(v, u);
+                  deactivate_edge(u, v);
                 }
             }
 
+
+            // phase 2: update matching and match remaining vertices
             GraphElem idx = 0; 
 #ifdef USE_OMP_OFFLOAD
             GraphElem lo = 0, hi = 0, past_mcount = 0;
 #endif
-            // phase 2
             while(1)
             {     
               if (idx >= mcount_) 
                 break;
 
+#ifdef USE_OMP_OFFLOAD
+              past_mcount = mcount_;
+#endif
               GraphElem v = D_[idx];
               idx++;
 
-              GraphElem e0, e1;
-              edge_range(v, e0, e1);
+              update_mate(v);
 
-#ifdef USE_OMP_OFFLOAD
-              past_mcount = mcount_;
-#pragma omp target teams distribute parallel for \
-          map(always, tofrom:mcount_)
-#else
-#pragma omp parallel for default(shared) schedule(static)
-#endif
-              for (GraphElem e = e0; e < e1; e++)
-              {
-                Edge const& edge = get_edge(e);
-                GraphElem const& x = edge.tail_;
-
-                // check if vertex is already matched
-                auto result = std::find_if(M_, M_ + mcount_, 
-                    [&](EdgeTuple const& et) 
-                    { return (((et.ij_[0] == v) || (et.ij_[1] == v)) && 
-                        ((et.ij_[0] == x) || (et.ij_[1] == x))); });
-
-                //  mate[x] == v and (v,x) not in M
-                if ((mate_[x] == v) && (result == (M_ + mcount_)))
-                {
-                  Edge x_max_edge;
-                  edge_range(x, e0, e1);
-
-                  for (GraphElem e = e0; e < e1; e++)
-                  {
-                    EdgeActive& edge = get_active_edge(e);
-                    if (edge.active_)
-                    {
-                      if (edge.edge_->tail_ == v)
-                        continue;
-
-                      if ((mate_[edge.edge_->tail_] == -1) 
-                          || (mate_[mate_[edge.edge_->tail_]] 
-                            != edge.edge_->tail_))
-                      {
-                        if (edge.edge_->weight_ > x_max_edge.weight_)
-                          x_max_edge = *edge.edge_;
-
-                        // break tie using vertex index
-                        if (is_same(edge.edge_->weight_, x_max_edge.weight_))
-                          if (edge.edge_->tail_ > x_max_edge.tail_)
-                            x_max_edge = *edge.edge_;
-                      }
-                    }
-                  }
-
-                  GraphElem y = mate_[x] = x_max_edge.tail_;
-
-                  if (y == -1) // if x has no neighbor other than v
-                    continue;
-
-                  if (mate_[y] == x) // matched
-                  {
-                    D_[mcount_*2    ] = x;
-                    D_[mcount_*2 + 1] = y;
-                    EdgeTuple et(x, y, x_max_edge.weight_); 
-                    M_[mcount_] = et;
-#pragma omp atomic update
-                    mcount_++;
-                    deactivate_edge(x, y);
-                  }
-                }
-              }
 #ifdef USE_OMP_OFFLOAD
               if (past_mcount < mcount_)
               {
                 lo = past_mcount;
                 hi = mcount_;
 #pragma omp target update(from:D_[lo:hi])
-#pragma omp target update(from:M_[lo:hi])
               }
 #endif
-            }
+            } // end of while(D_)
 
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target exit data map(from:mate_[0:nv_])
-#pragma omp target exit data map(from:D_[0:nv_*2])
 #pragma omp target exit data map(from:M_[0:nv_])
 #endif
         } 

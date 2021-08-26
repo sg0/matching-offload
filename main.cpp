@@ -74,7 +74,7 @@ int main(int argc, char *argv[])
     t1 = omp_get_wtime();
     double p_tot = t1 - t0;
 
-    std::cout << "Execution time (in s) for maximal edge matching: " 
+    std::cout << "Execution time (in s) for maximum edge matching: " 
         << p_tot << std::endl;
     std::cout << "#Edges in matched set: " << g->get_mcount() << std::endl;
 

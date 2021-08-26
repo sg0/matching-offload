@@ -76,6 +76,7 @@ int main(int argc, char *argv[])
 
     std::cout << "Execution time (in s) for maximal edge matching: " 
         << p_tot << std::endl;
+    std::cout << "#Edges in matched set: " << g->get_mcount() << std::endl;
 
 #if defined(CHECK_RESULTS)    
     g->check_results();

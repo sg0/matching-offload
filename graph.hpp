@@ -160,17 +160,24 @@ class Graph
                     "}, which will overwhelm STDOUT." << std::endl;
             }
         }
-        
+
         void print_preview() const
         {
-          std::cout << "Printing vertex#0 and all associated edges." << std::endl;
-          GraphElem e0, e1;
-          edge_range(0, e0, e1);
-          for (GraphElem e = e0; e < e1; e++)
-          {
-            Edge const& edge = get_edge(e);
-            std::cout << 0 << " " << edge.tail_ << " " << edge.weight_ << std::endl;
-          }
+            std::cout << "Printing vertex#0 and all associated edges." << std::endl;
+            GraphElem e0, e1;
+            for (GraphElem i = 0; i < nv_; i++)
+            {
+                edge_range(i, e0, e1);
+                if ((e1 - e0) > 0)
+                {
+                    for (GraphElem e = e0; e < e1; e++)
+                    {
+                        Edge const& edge = get_edge(e);
+                        std::cout << 0 << " " << edge.tail_ << " " << edge.weight_ << std::endl;
+                    }
+                    break;
+                }
+            }
         }
 
         void print_M() const

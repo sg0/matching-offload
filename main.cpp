@@ -57,7 +57,6 @@ int main(int argc, char *argv[])
         
     g->print_stats();
     assert(g != nullptr);
-    g->print_preview();
 
     td1 = omp_get_wtime();
     td = td1 - td0;

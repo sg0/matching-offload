@@ -24,6 +24,10 @@
 #define DEFAULT_NV   (524288)
 #endif
 
+#ifndef GRAPH_FT_LOAD
+#define GRAPH_FT_LOAD (1)
+#endif
+
 #include <random>
 #include <utility>
 #include <cstring>

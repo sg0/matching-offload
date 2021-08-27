@@ -20,7 +20,7 @@ static int generateGraph = 0;
 
 static GraphWeight randomEdgePercent = 0.0;
 static bool randomNumberLCG = false;
-static bool isUnitEdgeWeight = true;
+static bool isUnitEdgeWeight = false;
 
 static void parseCommandLine(const int argc, char * const argv[]);
 
@@ -51,12 +51,13 @@ int main(int argc, char *argv[])
     else // read input graph
     {
         BinaryEdgeList rm;
-        g = rm.read(inputFileName);
+        g = rm.read(inputFileName, isUnitEdgeWeight);
         std::cout << "Input file: " << inputFileName << std::endl;
     }
         
     g->print_stats();
     assert(g != nullptr);
+    g->print_preview();
 
     td1 = omp_get_wtime();
     td = td1 - td0;
@@ -101,7 +102,7 @@ void parseCommandLine(const int argc, char * const argv[])
   }
   else
   {
-      while ((ret = getopt(argc, argv, "f:n:lp:h")) != -1) 
+      while ((ret = getopt(argc, argv, "f:n:lp:uh")) != -1) 
       {
           switch (ret) {
               case 'f':
@@ -116,15 +117,15 @@ void parseCommandLine(const int argc, char * const argv[])
                   randomNumberLCG = true;
                   break;
               case 'u':
-                  isUnitEdgeWeight = false;
+                  isUnitEdgeWeight = true;
+                  std::cout << "Warning: graph edge weights will be 1.0." << std::endl;
                   break;
               case 'p':
                   randomEdgePercent = atof(optarg);
                   break;
               case 'h':
-                  std::cout << "Set OMP_NUM_THREADS (max threads reported: " << omp_get_max_threads() << ") and affinity." << std::endl;
-                  std::cout << "Usage [1] (use real-world file): ./neve_threads [-l] [-f /path/to/binary/file.bin] (see README)" << std::endl;
-                  std::cout << "Usage [2] (use synthetic graph): ./neve_threads [-n <#vertices>] [-l] [-p <\% extra edges>]" << std::endl;
+                  std::cout << "Sample usage [1] (use real-world file): ./matching_omp [-f /path/to/binary/file.bin] (see README)" << std::endl;
+                  std::cout << "Sample usage [2] (use synthetic graph): ./matching_omp [-n <#vertices>] [-l] [-p <\% extra edges>]" << std::endl;
                   help_text = true;
                   break;
               default:
@@ -143,12 +144,6 @@ void parseCommandLine(const int argc, char * const argv[])
       std::abort();
   }
    
-  if (!generateGraph && !isUnitEdgeWeight) 
-  {
-      std::cerr << "Must specify -g for graph generation first before setting edge weights." << std::endl;
-      std::abort();
-  }  
-  
   if (!generateGraph && randomNumberLCG) 
   {
       std::cerr << "Must specify -n <#vertices> for graph generation using LCG." << std::endl;

@@ -2,21 +2,16 @@
 Contents
 --------
 This folder contains codes for implementing Half-approximate
-matching. Please review the following paper for the serial
-algorithm, based on Manne-Bisseling: 
+matching on a shared-memory system. Please review the following 
+paper for the serial algorithm, based on Manne-Bisseling: 
 http://www.staff.science.uu.nl/~bisse101/Articles/CP75.pdf
 
-Also attached is a binary input file (karate.bin), for
-Karate network 
-( https://en.wikipedia.org/wiki/Zachary%27s_karate_club ).
-
-This code requires an MPI library (MPI-3 compatible) 
-and C++11 compliant compiler for building.
+This code requires an OpenMP runtime and a and C++11 compliant 
+compiler for building. Experimental OpenMP offloading support is 
+included (must pass -DUSE_OMP_OFFLOAD macro).
 
 Please contact the following for any queries or support:
-
-Sayan Ghosh, WSU (zsayanz at gmail dot com)
-Mahantesh Halappanavar, PNNL (hala at pnnl dot gov)
+Sayan Ghosh, PNNL (sg0 at pnnl dot gov)
 
 -----
 Cite
@@ -29,18 +24,12 @@ Exploring MPI Communication Models for Graph Applications Using Graph Matching a
 Compile
 -------
 Just invoking `make should build the program, without any
-changes made to the Makefile. Please pass the appropriate
-macro to select the MPI version, following are the macros
-(also mentioned in the Makefile):
+changes made to the Makefile. Please pass -DUSE_OMP_OFFLOAD
+and specific compiler options.
 
-# Options for choosing the MPI variants
-#-DUSE_MPI_NRM, RMA (passive mode) with neighbor communicator
-#-DUSE_MPI_P2P, Plain P2P
-#-DUSE_MPI_NCL, Neighborhood collective
-#-DUSE_MPI_NPP, P2P with neighbor communicator
-#-DUSE_MPI_RMA, Plain RMA (passive mode)
-# Experimental:
-#-DUSE_MPI_UPX, use -DREPLACE_UPX_WITH_RMA to replace UPCXX with MPI calls
+If you are running the code on a multi-socket system, pass
+-DGRAPH_FT_LOAD=<x> while building where x == #sockets or 
+#NUMA-nodes (it is 1 by default) to leverage first-touch access.
 
 -----
 Input
@@ -49,10 +38,15 @@ We require graphs to be converted from its native format to a binary format.
 The binary converter is part of another application, please follow the 
 instructions for using Vite for file conversion: https://github.com/Exa-Graph/vite
 
+Please note, this code requires weighted graphs (weight==1 is fine, outcome unknown 
+for negative weights). There is an option in the Vite converter to ignore weights in 
+graphs, which makes all edge weights zero. Such a graph won't be processed in
+this case.
+
 -------
 Execute
 -------
-mpiexec -n 2 ./match -f karate.bin
+./matching_omp -f karate.bin
 
 Apart from using external file, it is possible to generate
 in-memory a random geometric graph in a distributed fashion.
@@ -69,8 +63,11 @@ Possible options (can be combined):
 5. -w              : Use Euclidean distance as edge weight. If this option is not used,
                      edge weights are considered as 1.0. Generate edge weight uniformly 
                      between (0,1) if Euclidean distance is not available (applicable to 
-                     randomly generated edges).                    
-6. -r <nranks>     : This is used to control the number of aggregators in MPI I/O and is
-                     meaningful when an input binary graph file is passed with option "-f".
-                     naggr := (nranks > 1) ? (nprocs/nranks) : nranks;
-
+                     randomly generated edges).  
+6. -u              : Unit edge weights, i.e., make edge weights 1. This can potentially 
+                     change outcome of the program, as original edge weights will be 
+                     ignored when this option is used. If you are unsure about the weights
+                     of the original graph and want to check a sample, invoke 
+                     g->print_preview() on main (if nothing is shown, there is some issue 
+                     with the binary graph itself). 
+7. -h              : Print sample instances to run this code.                

@@ -160,6 +160,18 @@ class Graph
                     "}, which will overwhelm STDOUT." << std::endl;
             }
         }
+        
+        void print_preview() const
+        {
+          std::cout << "Printing vertex#0 and all associated edges." << std::endl;
+          GraphElem e0, e1;
+          edge_range(0, e0, e1);
+          for (GraphElem e = e0; e < e1; e++)
+          {
+            Edge const& edge = get_edge(e);
+            std::cout << 0 << " " << edge.tail_ << " " << edge.weight_ << std::endl;
+          }
+        }
 
         void print_M() const
         {
@@ -438,7 +450,7 @@ class BinaryEdgeList
         {}
         
         // read a file and return a graph
-        Graph* read(std::string binfile)
+        Graph* read(std::string binfile, bool isUnitEdgeWeight)
         {
             std::ifstream file;
 
@@ -557,9 +569,20 @@ class BinaryEdgeList
             
             // store reference to edge and active info
             // and ensure weights are positive
-            for (GraphElem i=0; i < N_; i++)
+            if (isUnitEdgeWeight)
+            {
+              for (GraphElem i=0; i < N_; i++)
+              {
                 g->edge_active_[i].edge_ = &(g->edge_list_[i]);
-            
+                g->edge_list_[i].weight_ = 1.0;
+              }
+            }
+            else
+            {
+              for (GraphElem i=0; i < N_; i++)
+                g->edge_active_[i].edge_ = &(g->edge_list_[i]);
+            }
+
             return g;
         }
     private:

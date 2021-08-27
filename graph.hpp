@@ -298,10 +298,9 @@ class Graph
             GraphElem e0, e1;
             edge_range(v, e0, e1);
 #ifdef USE_OMP_OFFLOAD
-#pragma omp atomic read
-              past_mcount = mcount_;
 #pragma omp target teams distribute parallel for \
-          map(always, tofrom:mcount_, to_:v)
+          map(always, tofrom:mcount_) \
+          map(always, to:v)
 #else
 #pragma omp parallel for default(shared) schedule(static)
 #endif
@@ -409,6 +408,7 @@ class Graph
                 break;
 
 #ifdef USE_OMP_OFFLOAD
+#pragma omp atomic read
               past_mcount = mcount_;
 #endif
               GraphElem v = D_[idx];
@@ -421,7 +421,7 @@ class Graph
               {
                 lo = past_mcount;
                 hi = mcount_;
-#pragma omp target update(from:D_[lo:hi])
+#pragma omp target update from(D_[lo:hi])
               }
 #endif
             } // end of while(D_)

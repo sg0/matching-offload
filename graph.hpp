@@ -299,8 +299,7 @@ class Graph
             edge_range(v, e0, e1);
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target teams distribute parallel for \
-          map(always, tofrom:mcount_) \
-          map(always, to:v)
+         map(always, tofrom:mcount_)
 #else
 #pragma omp parallel for default(shared) schedule(static)
 #endif
@@ -366,7 +365,7 @@ class Graph
             // part 1: compute max edge for every vertex
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target teams distribute parallel for \
-            map(always, tofrom:mate_[0:nv_], mcount_) 
+         map(always, tofrom:mcount_)
 #else
 #pragma omp parallel for default(shared) schedule(static) 
 #endif
@@ -417,10 +416,13 @@ class Graph
               update_mate(v);
 
 #ifdef USE_OMP_OFFLOAD
-              if (past_mcount < mcount_)
+              GraphElem curr_mcount;
+#pragma omp atomic read
+              curr_mcount = mcount_;
+              if (past_mcount < curr_mcount)
               {
                 lo = past_mcount;
-                hi = mcount_;
+                hi = curr_mcount;
 #pragma omp target update from(D_[lo:hi])
               }
 #endif

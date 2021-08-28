@@ -262,7 +262,7 @@ class Graph
         }
                 
         
-        void heaviest_edge_unmatched(GraphElem v, Edge& max_edge, GraphElem x = -1)
+        inline void heaviest_edge_unmatched(GraphElem v, Edge& max_edge, GraphElem x = -1)
         {
             GraphElem e0, e1;
             edge_range(v, e0, e1);
@@ -283,9 +283,11 @@ class Graph
                             max_edge = *edge.edge_;
 
                         // break tie using vertex index
-                        if (is_same(edge.edge_->weight_, max_edge.weight_))
+                        if (edge.edge_->weight_ == max_edge.weight_)
+                        {
                             if (edge.edge_->tail_ > max_edge.tail_)
                                 max_edge = *edge.edge_;
+                        }
                     }
                 }
             }
@@ -293,7 +295,7 @@ class Graph
 
         // check if mate[x] = v and mate[v] != x
         // if yes, compute mate[x]
-        void update_mate(GraphElem v)
+        inline void update_mate(GraphElem v)
         {
             GraphElem e0, e1;
             edge_range(v, e0, e1);
@@ -361,8 +363,7 @@ class Graph
         // maximal edge matching using OpenMP
         void maxematch()
         {
-            // phase #1
-            // part 1: compute max edge for every vertex
+            // phase #1: compute max edge for every vertex
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target teams distribute parallel for \
          map(always, tofrom:mcount_)
@@ -396,6 +397,14 @@ class Graph
                 }
             }
 
+
+#ifdef USE_OMP_OFFLOAD
+#pragma omp target update from(mate_[0:nv_])
+#pragma omp target update from(D_[0:2*mcount_])
+#pragma omp target update from(M_[0:mcount_])
+#endif
+            std::cout << "mcount: " << mcount_ << std::endl;
+            
             // phase 2: update matching and match remaining vertices
             GraphElem idx = 0; 
 #ifdef USE_OMP_OFFLOAD

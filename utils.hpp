@@ -85,7 +85,6 @@ struct EdgeTuple
     {}
 };
 
-
 extern unsigned seed;
 
 // Is nprocs a power-of-2?

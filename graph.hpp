@@ -366,7 +366,7 @@ class Graph
             // phase #1: compute max edge for every vertex
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target teams distribute parallel for \
-         map(always, tofrom:mcount_)
+          map(always, tofrom:mcount_)
 #else
 #pragma omp parallel for default(shared) schedule(static) 
 #endif

@@ -366,6 +366,7 @@ class Graph
             // phase #1: compute max edge for every vertex
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target teams distribute parallel for \
+          map(always, to:mate_[0:nv_]) \
           map(always, tofrom:mcount_)
 #else
 #pragma omp parallel for default(shared) schedule(static) 
@@ -399,7 +400,6 @@ class Graph
 
 
 #ifdef USE_OMP_OFFLOAD
-#pragma omp target update from(mate_[0:nv_])
 #pragma omp target update from(D_[0:2*mcount_])
 #pragma omp target update from(M_[0:mcount_])
 #endif

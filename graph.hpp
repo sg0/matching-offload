@@ -416,7 +416,6 @@ class Graph
                 break;
 
 #ifdef USE_OMP_OFFLOAD
-#pragma omp atomic read
               past_mcount = mcount_;
 #endif
               GraphElem v = D_[idx];
@@ -425,9 +424,7 @@ class Graph
               update_mate(v);
 
 #ifdef USE_OMP_OFFLOAD
-              GraphElem curr_mcount;
-#pragma omp atomic read
-              curr_mcount = mcount_;
+              GraphElem curr_mcount = mcount_;
               if (past_mcount < curr_mcount)
               {
                 lo = past_mcount;

@@ -30,8 +30,10 @@ int main(int argc, char *argv[])
     int max_threads, req_threads;
     
     max_threads = omp_get_max_threads();
-    req_threads = omp_get_num_threads();
-
+#pragma omp parallel
+    {
+	    req_threads = omp_get_num_threads();
+    }
     std::cout << "Maximum threads: " << max_threads << ", requested threads: " << req_threads << std::endl;
     
     // command line options

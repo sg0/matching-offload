@@ -72,12 +72,12 @@ class Graph
         {
 
 #ifdef USE_OMP_OFFLOAD
-#pragma omp target exit data map(from:edge_indices_[0:nv_+1])
-#pragma omp target exit data map(from:edge_list_[0:ne_])
-#pragma omp target exit data map(from:edge_active_[0:ne_])
-#pragma omp target exit data map(from:mate_[0:nv_])
-#pragma omp target exit data map(from:D_[0:nv_*2])
-#pragma omp target exit data map(from:M_[0:nv_])
+#pragma omp target exit data map(delete:edge_indices_[0:nv_+1])
+#pragma omp target exit data map(delete:edge_list_[0:ne_])
+#pragma omp target exit data map(delete:edge_active_[0:ne_])
+#pragma omp target exit data map(delete:mate_[0:nv_])
+#pragma omp target exit data map(delete:D_[0:nv_*2])
+#pragma omp target exit data map(delete:M_[0:nv_])
 #endif
             delete [] edge_indices_;
             delete [] edge_list_;

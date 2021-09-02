@@ -413,7 +413,6 @@ class Graph
               if (v != -1)
                 update_mate(v);
             }
-
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target update from(mate_[0:nv_], M_[0:nv_])
 #endif 

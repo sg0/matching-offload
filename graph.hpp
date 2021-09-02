@@ -70,6 +70,15 @@ class Graph
 
         ~Graph() 
         {
+
+#ifdef USE_OMP_OFFLOAD
+#pragma omp target exit data map(from:edge_indices_[0:nv_+1])
+#pragma omp target exit data map(from:edge_list_[0:ne_])
+#pragma omp target exit data map(from:edge_active_[0:ne_])
+#pragma omp target exit data map(from:mate_[0:nv_])
+#pragma omp target exit data map(from:D_[0:nv_*2])
+#pragma omp target exit data map(from:M_[0:nv_])
+#endif
             delete [] edge_indices_;
             delete [] edge_list_;
             delete [] edge_active_;
@@ -363,6 +372,7 @@ class Graph
         {
             // phase #1: compute max edge for every vertex
 #ifdef USE_OMP_OFFLOAD
+#pragma omp target update to(mate_[0:nv_], D_[0:2*nv_], M_[0:nv_])
 #pragma omp target teams distribute parallel for 
 #else
 #pragma omp parallel for default(shared) schedule(static) 
@@ -390,11 +400,9 @@ class Graph
                 }
             }
 
-#ifdef USE_OMP_OFFLOAD
-#pragma omp target update from(D_[0:2*nv_])
-#endif
             // phase 2: update matching and match remaining vertices
 #ifdef USE_OMP_OFFLOAD
+#pragma omp target update from(D_[0:2*nv_])
 #pragma omp target teams distribute parallel for 
 #else
 #pragma omp parallel for default(shared) schedule(static) 
@@ -405,10 +413,6 @@ class Graph
               if (v != -1)
                 update_mate(v);
             } 
-#ifdef USE_OMP_OFFLOAD
-#pragma omp target exit data map(from:mate_[0:nv_])
-#pragma omp target exit data map(from:M_[0:nv_])
-#endif
         } 
 
         EdgeActive *edge_active_;

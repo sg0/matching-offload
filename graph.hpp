@@ -375,19 +375,27 @@ class Graph
 #pragma omp target update to(mate_[0:nv_], D_[0:2*nv_], M_[0:nv_])
 #pragma omp target teams distribute parallel for 
 #else
-#pragma omp parallel for default(shared) schedule(static) 
+#pragma omp parallel for default(shared) schedule(dynamic) 
 #endif
             for (GraphElem v = 0; v < nv_; v++)
             {
                 Edge max_edge;
                 heaviest_edge_unmatched(v, max_edge);
                   
-                GraphElem u = mate_[v] = max_edge.tail_; // v's mate
+                GraphElem u; 
+
+                #pragma omp atomic write
+                mate_[v] = max_edge.tail_; // v's mate
+                u = mate_[v];
 
                 if (u != -1)
-                {  
+                { 
+                  GraphElem mate_u; 
+                  #pragma omp atomic read
+                  mate_u = mate_[u];
+                  
                   // is mate[u] == v?
-                  if (mate_[u] == v) // matched
+                  if (mate_u == v) // matched
                   {
                     D_[v*2    ] = u;
                     D_[v*2 + 1] = v;
@@ -399,13 +407,12 @@ class Graph
                   }
                 }
             }
-
             // phase 2: update matching and match remaining vertices
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target update from(D_[0:2*nv_])
 #pragma omp target teams distribute parallel for 
 #else
-#pragma omp parallel for default(shared) schedule(static) 
+#pragma omp parallel for default(shared) schedule(dynamic) 
 #endif
             for (GraphElem e = 0; e < nv_*2; e++)
             {     

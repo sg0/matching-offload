@@ -337,20 +337,28 @@ class Graph
                 {
                     Edge x_max_edge;
                     heaviest_edge_unmatched(x, x_max_edge, v);
-                    GraphElem y = mate_[x] = x_max_edge.tail_;
+                    GraphElem y;
 
-                    if (y == -1) // if x has no neighbor other than v
-                        continue;
+                    #pragma omp atomic write
+                    mate_[x] = x_max_edge.tail_;
+                    y = mate_[x];
 
-                    if (mate_[y] == x) // matched
-                    {
-                      D_[v*2    ] = x;
-                      D_[v*2 + 1] = y;
-                      EdgeTuple et(x, y, x_max_edge.weight_); 
-                      M_[v] = et;
+		    if (y != -1) // if x has no neighbor other than v
+		    {
+			GraphElem mate_y; 
+                        #pragma omp atomic read
+			mate_y = mate_[y];
 
-                      deactivate_edge(x, y);
-                    }
+			if (mate_y == x) // matched
+			{
+			    D_[v*2    ] = x;
+		            D_[v*2 + 1] = y;
+		            EdgeTuple et(x, y, x_max_edge.weight_); 
+		            M_[v] = et;
+
+		            deactivate_edge(x, y);
+			}
+		    }
                 }
             }
         }

@@ -41,6 +41,9 @@ using GraphElem = int64_t;
 using GraphWeight = double;
 #endif
 
+#ifdef USE_OMP_OFFLOAD
+#pragma omp declare target
+#endif
 #ifdef EDGE_AS_VERTEX_PAIR
 struct Edge
 {   
@@ -84,6 +87,9 @@ struct EdgeTuple
         ij_{-1, -1}, w_(0.0)
     {}
 };
+#ifdef USE_OMP_OFFLOAD
+#pragma omp end declare target
+#endif
 
 extern unsigned seed;
 

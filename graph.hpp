@@ -323,6 +323,7 @@ class Graph
                 GraphElem const& x = edge.tail_;
 
                 // check if vertex is already matched
+                #if defined(CHECK_VERTEX_MATCHED)
                 auto result = std::find_if(M_, M_ + nv_, 
                         [&](EdgeTuple const& et) 
                         { return (((et.ij_[0] == v) || (et.ij_[1] == v)) && 
@@ -330,6 +331,9 @@ class Graph
                 
                 //  mate[x] == v and (v,x) not in M
                 if ((mate_[x] == v) && (result == (M_ + nv_)))
+                #else
+                if (mate_[x] == v)
+                #endif
                 {
                     Edge x_max_edge;
                     heaviest_edge_unmatched(x, x_max_edge, v);

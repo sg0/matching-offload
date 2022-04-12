@@ -363,6 +363,38 @@ class Graph
             }
         }
 
+	inline void insert_next(GraphElem v, GraphElem x, GraphElem y)
+	{
+		GraphElem curr_v, seq = 0;
+		GraphElem idx = v + 1;
+		while (1)
+		{
+                        #pragma omp atomic read
+			curr_v = D_[idx];
+			if (curr_v == -1)
+			{
+				if (seq == 2)
+					break;
+				else 
+				{
+                                    if (seq == 0)
+                                    {
+                                       #pragma omp atomic write
+					D_[idx] = x;
+					seq += 1;
+                                    }
+                                    else
+				    {
+                                        #pragma omp atomic write
+					D_[idx] = y;
+					seq += 1;
+				    }
+				}
+			}  
+                        idx += 1;
+		}
+	}
+
         // deactivate edge x -- y
         inline void deactivate_edge(GraphElem x, GraphElem y)
         {

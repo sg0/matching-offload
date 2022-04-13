@@ -315,85 +315,77 @@ class Graph
         // if yes, compute mate[x]
         inline void update_mate(GraphElem v)
         {
-            GraphElem e0, e1;
-            edge_range(v, e0, e1);
-            for (GraphElem e = e0; e < e1; e++)
+          GraphElem e0, e1;
+          edge_range(v, e0, e1);
+          for (GraphElem e = e0; e < e1; e++)
+          {
+            Edge const& edge = get_edge(e);
+            GraphElem const& x = edge.tail_;
+
+            // check if vertex is already matched
+            if ((mate_[x] == v) && (M_[v].ij_[0] != x || M_[v].ij_[1] != x) && (M_[x].ij_[0] != v || M_[x].ij_[1] != v))
             {
-                Edge const& edge = get_edge(e);
-                GraphElem const& x = edge.tail_;
+              Edge x_max_edge;
+              heaviest_edge_unmatched(x, x_max_edge, v);
+              GraphElem y;
 
-                // check if vertex is already matched
-                #if defined(CHECK_VERTEX_MATCHED)
-                auto result = std::find_if(M_, M_ + nv_, 
-                        [&](EdgeTuple const& et) 
-                        { return (((et.ij_[0] == v) || (et.ij_[1] == v)) && 
-                                ((et.ij_[0] == x) || (et.ij_[1] == x))); });
-                
-                //  mate[x] == v and (v,x) not in M
-                if ((mate_[x] == v) && (result == (M_ + nv_)))
-                #else
-                if (mate_[x] == v)
-                #endif
+#pragma omp atomic write
+              mate_[x] = x_max_edge.tail_;
+              y = mate_[x];
+
+              if (y != -1) // if x has no neighbor other than v
+              {
+                GraphElem mate_y; 
+#pragma omp atomic read
+                mate_y = mate_[y];
+
+                if (mate_y == x) // matched
                 {
-                    Edge x_max_edge;
-                    heaviest_edge_unmatched(x, x_max_edge, v);
-                    GraphElem y;
+                  D_[v*2    ] = x;
+                  D_[v*2 + 1] = y;
+                  EdgeTuple et(x, y, x_max_edge.weight_); 
+                  M_[v] = et;
 
-                    #pragma omp atomic write
-                    mate_[x] = x_max_edge.tail_;
-                    y = mate_[x];
-
-		    if (y != -1) // if x has no neighbor other than v
-		    {
-			GraphElem mate_y; 
-                        #pragma omp atomic read
-			mate_y = mate_[y];
-
-			if (mate_y == x) // matched
-			{
-			    D_[v*2    ] = x;
-		            D_[v*2 + 1] = y;
-		            EdgeTuple et(x, y, x_max_edge.weight_); 
-		            M_[v] = et;
-
-		            deactivate_edge(x, y);
-			}
-		    }
+                  deactivate_edge(x, y);
                 }
+              }
             }
+          }
         }
 
-	inline void insert_next(GraphElem v, GraphElem x, GraphElem y)
-	{
-		GraphElem curr_v, seq = 0;
-		GraphElem idx = v + 1;
-		while (1)
-		{
-                        #pragma omp atomic read
-			curr_v = D_[idx];
-			if (curr_v == -1)
-			{
-				if (seq == 2)
-					break;
-				else 
-				{
-                                    if (seq == 0)
-                                    {
-                                       #pragma omp atomic write
-					D_[idx] = x;
-					seq += 1;
-                                    }
-                                    else
-				    {
-                                        #pragma omp atomic write
-					D_[idx] = y;
-					seq += 1;
-				    }
-				}
-			}  
-                        idx += 1;
-		}
-	}
+        inline void insert_next(GraphElem v, GraphElem x, GraphElem y)
+        {
+          GraphElem curr_v, seq = 0;
+          GraphElem idx = v + 1;
+          while (1)
+          {
+#pragma omp atomic read
+            curr_v = D_[idx];
+            if (curr_v == -1)
+            {
+              if (seq == 2)
+                break;
+              else 
+              {
+                if (seq == 0)
+                {
+#pragma omp atomic write
+                  D_[idx] = x;
+                  seq += 1;
+                }
+                else
+                {
+#pragma omp atomic write
+                  D_[idx] = y;
+                  seq += 1;
+                }
+              }
+            }  
+            idx += 1;
+            if (idx >= (2*nv_ - v))
+              break;
+          }
+        }
 
         // deactivate edge x -- y
         inline void deactivate_edge(GraphElem x, GraphElem y)

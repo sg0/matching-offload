@@ -383,7 +383,7 @@ class Graph
         }
 
         // maximal edge matching using OpenMP
-        void maxematch()
+        inline void maxematch()
         {
           GraphElem e_cnt = 0;
           // phase #1: compute max edge for every vertex

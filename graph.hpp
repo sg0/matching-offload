@@ -388,7 +388,8 @@ class Graph
           GraphElem e_cnt = 0;
           // phase #1: compute max edge for every vertex
 #ifdef USE_OMP_OFFLOAD
-#pragma omp target update to(mate_[0:nv_], D_[0:2*nv_], M_[0:nv_])
+#pragma omp target update to(mate_[0:nv_], D_[0:2*nv_], M_[0:nv_]) 
+#pragma omp target update from(e_cnt)
 #pragma omp target teams distribute parallel for 
 #else
 #pragma omp parallel for default(shared) shared(e_cnt) schedule(dynamic) 
@@ -428,16 +429,18 @@ class Graph
             }
           }
 
-          GraphElem seq = 0, idx;
+          GraphElem seq = 0;
           // phase 2: update matching and match remaining vertices
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target update from(D_[0:2*nv_])
-#pragma omp target teams distribute parallel
+#pragma omp target update to(e_cnt, seq)
+#pragma omp parallel 
 #else
 #pragma omp parallel default(shared) private(idx) shared(e_cnt, seq) 
 #endif
           while(1)
-          {     
+          { 
+            GraphElem idx;    
 #pragma omp atomic capture
             idx = seq++;
 

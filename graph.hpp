@@ -313,7 +313,7 @@ class Graph
 
         // check if mate[x] = v and mate[v] != x
         // if yes, compute mate[x]
-        inline void update_mate(GraphElem v)
+        inline void update_mate(GraphElem v, GraphElem& cnt)
         {
           GraphElem e0, e1;
           edge_range(v, e0, e1);
@@ -322,8 +322,13 @@ class Graph
             Edge const& edge = get_edge(e);
             GraphElem const& x = edge.tail_;
 
+            auto result = std::find_if(M_, M_ + cnt, 
+                [&](EdgeTuple const& et) 
+                { return (((et.ij_[0] == v) || (et.ij_[1] == v)) && 
+                    ((et.ij_[0] == x) || (et.ij_[1] == x))); });
+
             // check if vertex is already matched
-            if ((mate_[x] == v) && (M_[v].ij_[0] != x || M_[v].ij_[1] != x) && (M_[x].ij_[0] != v || M_[x].ij_[1] != v))
+            if ((mate_[x] == v) && (result == (M_ + cnt)))
             {
               Edge x_max_edge;
               heaviest_edge_unmatched(x, x_max_edge, v);
@@ -331,59 +336,33 @@ class Graph
 
 #pragma omp atomic write
               mate_[x] = x_max_edge.tail_;
+#pragma omp atomic read
               y = mate_[x];
 
               if (y != -1) // if x has no neighbor other than v
               {
+                GraphElem mate_u, idx;
                 GraphElem mate_y; 
 #pragma omp atomic read
                 mate_y = mate_[y];
 
                 if (mate_y == x) // matched
                 {
-                  D_[v*2    ] = x;
-                  D_[v*2 + 1] = y;
                   EdgeTuple et(x, y, x_max_edge.weight_); 
-                  M_[v] = et;
+
+#pragma omp atomic capture
+                  idx = cnt++;
+                  D_[idx] = x;
+                  M_[idx] = et;
+
+#pragma omp atomic capture
+                  idx = cnt++;
+                  D_[idx] = y;
 
                   deactivate_edge(x, y);
                 }
               }
             }
-          }
-        }
-
-        inline void insert_next(GraphElem v, GraphElem x, GraphElem y)
-        {
-          GraphElem curr_v, seq = 0;
-          GraphElem idx = v + 1;
-          while (1)
-          {
-#pragma omp atomic read
-            curr_v = D_[idx];
-            if (curr_v == -1)
-            {
-              if (seq == 2)
-                break;
-              else 
-              {
-                if (seq == 0)
-                {
-#pragma omp atomic write
-                  D_[idx] = x;
-                  seq += 1;
-                }
-                else
-                {
-#pragma omp atomic write
-                  D_[idx] = y;
-                  seq += 1;
-                }
-              }
-            }  
-            idx += 1;
-            if (idx >= (2*nv_ - v))
-              break;
           }
         }
 
@@ -406,56 +385,69 @@ class Graph
         // maximal edge matching using OpenMP
         void maxematch()
         {
-            // phase #1: compute max edge for every vertex
+          GraphElem e_cnt = 0;
+          // phase #1: compute max edge for every vertex
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target update to(mate_[0:nv_], D_[0:2*nv_], M_[0:nv_])
 #pragma omp target teams distribute parallel for 
 #else
-#pragma omp parallel for default(shared) schedule(dynamic) 
+#pragma omp parallel for default(shared) shared(e_cnt) schedule(dynamic) 
 #endif
-            for (GraphElem v = 0; v < nv_; v++)
-            {
-                Edge max_edge;
-                heaviest_edge_unmatched(v, max_edge);
-                  
-                GraphElem u; 
+          for (GraphElem v = 0; v < nv_; v++)
+          {
+            Edge max_edge;
 
-                #pragma omp atomic write
-                mate_[v] = max_edge.tail_; // v's mate
-                u = mate_[v];
+            heaviest_edge_unmatched(v, max_edge);
 
-                if (u != -1)
-                { 
-                  GraphElem mate_u; 
-                  #pragma omp atomic read
-                  mate_u = mate_[u];
-                  
-                  // is mate[u] == v?
-                  if (mate_u == v) // matched
-                  {
-                    D_[v*2    ] = u;
-                    D_[v*2 + 1] = v;
-                    EdgeTuple et(u, v, max_edge.weight_); 
-                    M_[v] = et;
+            GraphElem u = mate_[v] = max_edge.tail_; // v's mate
 
-                    deactivate_edge(v, u);
-                    deactivate_edge(u, v);
-                  }
-                }
+            if (u != -1)
+            { 
+              GraphElem mate_u, idx;
+
+#pragma omp atomic read
+              mate_u = mate_[u];
+                
+              EdgeTuple et(u, v, max_edge.weight_);
+
+              // is mate[u] == v?
+              if (mate_u == v) // matched
+              {                    
+#pragma omp atomic capture
+                idx = e_cnt++;
+                D_[idx] = u;
+                M_[idx] = et;
+
+#pragma omp atomic capture
+                idx = e_cnt++;
+                D_[idx] = v;
+
+                deactivate_edge(v, u);
+                deactivate_edge(u, v);
+              }
             }
-            // phase 2: update matching and match remaining vertices
+          }
+
+          GraphElem seq = 0, idx;
+          // phase 2: update matching and match remaining vertices
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target update from(D_[0:2*nv_])
-#pragma omp target teams distribute parallel for 
+#pragma omp target teams distribute parallel
 #else
-#pragma omp parallel for default(shared) schedule(dynamic) 
+#pragma omp parallel default(shared) private(idx) shared(e_cnt, seq) 
 #endif
-            for (GraphElem e = 0; e < nv_*2; e++)
-            {     
-              GraphElem v = D_[e];
-              if (v != -1)
-                update_mate(v);
-            }
+          while(1)
+          {     
+#pragma omp atomic capture
+            idx = seq++;
+
+            if (idx >= 2*nv_)
+              break;
+
+            GraphElem v = D_[idx];
+            if (v != -1)
+              update_mate(v, e_cnt);
+          }
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target update from(mate_[0:nv_], M_[0:nv_])
 #endif 

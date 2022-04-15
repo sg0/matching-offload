@@ -389,46 +389,46 @@ class Graph
           // phase #1: compute max edge for every vertex
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target data map(tofrom:e_cnt)
-         {
+          {
 #pragma omp target update to(mate_[0:nv_], D_[0:2*nv_], M_[0:nv_]) 
 #pragma omp target teams distribute parallel for 
 #else
 #pragma omp parallel for default(shared) schedule(dynamic) 
 #endif
-          for (GraphElem v = 0; v < nv_; v++)
-          {
-            Edge max_edge;
+            for (GraphElem v = 0; v < nv_; v++)
+            {
+              Edge max_edge;
 
-            heaviest_edge_unmatched(v, max_edge);
+              heaviest_edge_unmatched(v, max_edge);
 
-            GraphElem u = mate_[v] = max_edge.tail_; // v's mate
+              GraphElem u = mate_[v] = max_edge.tail_; // v's mate
 
-            if (u != -1)
-            { 
-              GraphElem mate_u, idx;
+              if (u != -1)
+              { 
+                GraphElem mate_u, idx;
 
 #pragma omp atomic read
-              mate_u = mate_[u];
-                
-              EdgeTuple et(u, v, max_edge.weight_);
+                mate_u = mate_[u];
 
-              // is mate[u] == v?
-              if (mate_u == v) // matched
-              {                    
+                EdgeTuple et(u, v, max_edge.weight_);
+
+                // is mate[u] == v?
+                if (mate_u == v) // matched
+                {                    
 #pragma omp atomic capture
-                idx = e_cnt++;
-                D_[idx] = u;
-                M_[idx] = et;
+                  idx = e_cnt++;
+                  D_[idx] = u;
+                  M_[idx] = et;
 
 #pragma omp atomic capture
-                idx = e_cnt++;
-                D_[idx] = v;
+                  idx = e_cnt++;
+                  D_[idx] = v;
 
-                deactivate_edge(v, u);
-                deactivate_edge(u, v);
+                  deactivate_edge(v, u);
+                  deactivate_edge(u, v);
+                }
               }
             }
-          }
 #ifdef USE_OMP_OFFLOAD
           }
 #endif
@@ -442,19 +442,19 @@ class Graph
 #else
 #pragma omp parallel default(shared) 
 #endif
-          while(1)
-          { 
-            GraphElem idx;    
+            while(1)
+            { 
+              GraphElem idx;    
 #pragma omp atomic capture
-            idx = seq++;
+              idx = seq++;
 
-            if (idx >= 2*nv_)
-              break;
+              if (idx >= 2*nv_)
+                break;
 
-            GraphElem v = D_[idx];
-            if (v != -1)
-              update_mate(v, e_cnt);
-          }
+              GraphElem v = D_[idx];
+              if (v != -1)
+                update_mate(v, e_cnt);
+            }
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target update from(mate_[0:nv_], M_[0:nv_])
           }

@@ -313,7 +313,7 @@ class Graph
 
         // check if mate[x] = v and mate[v] != x
         // if yes, compute mate[x]
-        inline void update_mate(GraphElem v, GraphElem& cnt)
+        inline void update_mate(GraphElem v)
         {
           GraphElem e0, e1;
           edge_range(v, e0, e1);
@@ -322,13 +322,18 @@ class Graph
             Edge const& edge = get_edge(e);
             GraphElem const& x = edge.tail_;
 
-            auto result = std::find_if(M_, M_ + cnt, 
-                [&](EdgeTuple const& et) 
-                { return (((et.ij_[0] == v) || (et.ij_[1] == v)) && 
-                    ((et.ij_[0] == x) || (et.ij_[1] == x))); });
-
             // check if vertex is already matched
-            if ((mate_[x] == v) && (result == (M_ + cnt)))
+#if defined(DONT_CHECK_MATCHED)
+            if (mate_[x] == v)
+#else
+            auto result = std::find_if(M_, M_ + nv_, 
+                  [&](EdgeTuple const& et) 
+                  { return (((et.ij_[0] == v) || (et.ij_[1] == v)) && 
+                      ((et.ij_[0] == x) || (et.ij_[1] == x))); });
+
+            //  mate[x] == v and (v,x) not in M
+            if ((mate_[x] == v) && (result == (M_ + nv_)))
+#endif
             {
               Edge x_max_edge;
               heaviest_edge_unmatched(x, x_max_edge, v);
@@ -350,14 +355,9 @@ class Graph
                 {
                   EdgeTuple et(x, y, x_max_edge.weight_); 
 
-#pragma omp atomic capture
-                  idx = cnt++;
-                  D_[idx] = x;
-                  M_[idx] = et;
-
-#pragma omp atomic capture
-                  idx = cnt++;
-                  D_[idx] = y;
+                  D_[y*2    ] = x;
+                  D_[y*2 + 1] = y;
+                  M_[y] = et;
 
                   deactivate_edge(x, y);
                 }
@@ -385,11 +385,8 @@ class Graph
         // maximal edge matching using OpenMP
         inline void maxematch()
         {
-          GraphElem e_cnt = 0;
           // phase #1: compute max edge for every vertex
 #ifdef USE_OMP_OFFLOAD
-#pragma omp target data map(tofrom:e_cnt)
-          {
 #pragma omp target update to(mate_[0:nv_], D_[0:2*nv_], M_[0:nv_]) 
 #pragma omp target teams distribute parallel for 
 #else
@@ -405,39 +402,30 @@ class Graph
 
               if (u != -1)
               { 
-                GraphElem mate_u, idx;
+                GraphElem mate_u;
 
 #pragma omp atomic read
                 mate_u = mate_[u];
 
-                EdgeTuple et(u, v, max_edge.weight_);
-
                 // is mate[u] == v?
                 if (mate_u == v) // matched
                 {                    
-#pragma omp atomic capture
-                  idx = e_cnt++;
-                  D_[idx] = u;
-                  M_[idx] = et;
-
-#pragma omp atomic capture
-                  idx = e_cnt++;
-                  D_[idx] = v;
+                  EdgeTuple et(u, v, max_edge.weight_);
+                  
+                  D_[v*2]     = u;
+                  D_[v*2 + 1] = v;
+                  M_[v]       = et;
 
                   deactivate_edge(v, u);
                   deactivate_edge(u, v);
                 }
               }
             }
-#ifdef USE_OMP_OFFLOAD
-          }
-#endif
+
           GraphElem seq = 0;
           // phase 2: update matching and match remaining vertices
 #ifdef USE_OMP_OFFLOAD
-#pragma omp target data map(to:seq)
-          {
-#pragma omp target update from(D_[0:2*nv_], e_cnt)
+#pragma omp target update from(D_[0:2*nv_])
 #pragma omp parallel 
 #else
 #pragma omp parallel default(shared) 
@@ -453,11 +441,10 @@ class Graph
 
               GraphElem v = D_[idx];
               if (v != -1)
-                update_mate(v, e_cnt);
+                update_mate(v);
             }
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target update from(mate_[0:nv_], M_[0:nv_])
-          }
 #endif 
         } 
 

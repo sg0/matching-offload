@@ -324,11 +324,13 @@ class Graph
         // if yes, compute mate[x]
         inline void update_mate(GraphElem v)
         {
-          GraphElem e0, e1;
+          GraphElem e0, e1, y;
           bool is_matched;
           char match_x, match_v;
+          GraphElem mate_y, mate_x;
 
           edge_range(v, e0, e1);
+          
           for (GraphElem e = e0; e < e1; e++)
           {
             Edge const& edge = get_edge(e);
@@ -341,12 +343,14 @@ class Graph
             
             is_matched = (match_x == '1') && (match_v == '1');
 
+#pragma omp atomic read
+            mate_x = mate_[x];
+
             //  mate[x] == v and (v,x) not in M
-            if ((mate_[x] == v) && !is_matched)
+            if ((mate_x == v) && !is_matched)
             {
               Edge x_max_edge;
               heaviest_edge_unmatched(x, x_max_edge, v);
-              GraphElem y;
 
 #pragma omp atomic write
               mate_[x] = x_max_edge.tail_;
@@ -355,8 +359,6 @@ class Graph
 
               if (y != -1) // if x has no neighbor other than v
               {
-                GraphElem mate_u, idx;
-                GraphElem mate_y; 
 #pragma omp atomic read
                 mate_y = mate_[y];
 
@@ -366,7 +368,7 @@ class Graph
 
                   D_[y*2    ] = x;
                   D_[y*2 + 1] = y;
-                  M_[y] = et;
+                  M_[y]       = et;
 
 #pragma omp atomic write
                   matched_[x] = '1';

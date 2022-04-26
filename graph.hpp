@@ -24,7 +24,8 @@ class Graph
     public:
         Graph(): nv_(-1), ne_(-1), 
                  edge_indices_(nullptr), edge_list_(nullptr),
-                 edge_active_(nullptr), mate_(nullptr), D_(nullptr), M_(nullptr) 
+                 edge_active_(nullptr), mate_(nullptr), D_(nullptr), 
+                 M_(nullptr), matched_(nullptr) 
         {}
                 
         Graph(GraphElem nv): 
@@ -35,14 +36,17 @@ class Graph
             M_              = new EdgeTuple[nv_];
             D_              = new GraphElem[nv_*2];
             mate_           = new GraphElem[nv_];
+            matched_        = new char[nv_];
             std::fill(D_, D_ + nv_*2, -1);
             std::fill(mate_, mate_ + nv_, -1);
+            std::fill(matched_, matched_ + nv_, '0');
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target enter data map(to:this[:1])
 #pragma omp target enter data map(alloc:edge_indices_[0:nv_+1])
 #pragma omp target enter data map(alloc:D_[0:nv_*2])
 #pragma omp target enter data map(alloc:M_[0:nv_])
 #pragma omp target enter data map(alloc:mate_[0:nv_])
+#pragma omp target enter data map(alloc:matched_[0:nv_])
 #endif
         }
 
@@ -55,8 +59,10 @@ class Graph
             M_              = new EdgeTuple[nv_];
             D_              = new GraphElem[nv_*2];
             mate_           = new GraphElem[nv_];
+            matched_        = new char[nv_];
             std::fill(D_, D_ + nv_*2, -1);
             std::fill(mate_, mate_ + nv_, -1);
+            std::fill(matched_, matched_ + nv_, '0');
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target enter data map(to:this[:1])
 #pragma omp target enter data map(alloc:edge_indices_[0:nv_+1])
@@ -65,6 +71,7 @@ class Graph
 #pragma omp target enter data map(alloc:D_[0:nv_*2])
 #pragma omp target enter data map(alloc:M_[0:nv_])
 #pragma omp target enter data map(alloc:mate_[0:nv_])
+#pragma omp target enter data map(alloc:matched_[0:nv_])
 #endif
         }
 
@@ -78,6 +85,7 @@ class Graph
 #pragma omp target exit data map(delete:mate_[0:nv_])
 #pragma omp target exit data map(delete:D_[0:nv_*2])
 #pragma omp target exit data map(delete:M_[0:nv_])
+#pragma omp target exit data map(delete:matched_[0:nv_])
 #endif
             delete [] edge_indices_;
             delete [] edge_list_;
@@ -85,6 +93,7 @@ class Graph
             delete [] D_;
             delete [] M_;
             delete [] mate_;
+            delete [] matched_;
         }
        
         Graph(const Graph &other) = delete;
@@ -316,24 +325,24 @@ class Graph
         inline void update_mate(GraphElem v)
         {
           GraphElem e0, e1;
+          bool is_matched;
+          char match_x, match_v;
+
           edge_range(v, e0, e1);
           for (GraphElem e = e0; e < e1; e++)
           {
             Edge const& edge = get_edge(e);
             GraphElem const& x = edge.tail_;
 
-            // check if vertex is already matched
-#if defined(DONT_CHECK_MATCHED)
-            if (mate_[x] == v)
-#else
-            auto result = std::find_if(M_, M_ + nv_, 
-                  [&](EdgeTuple const& et) 
-                  { return (((et.ij_[0] == v) || (et.ij_[1] == v)) && 
-                      ((et.ij_[0] == x) || (et.ij_[1] == x))); });
+#pragma omp atomic read
+            match_x = matched_[x];
+#pragma omp atomic read
+            match_v = matched_[v];
+            
+            is_matched = (match_x == '1') && (match_v == '1');
 
             //  mate[x] == v and (v,x) not in M
-            if ((mate_[x] == v) && (result == (M_ + nv_)))
-#endif
+            if ((mate_[x] == v) && !is_matched)
             {
               Edge x_max_edge;
               heaviest_edge_unmatched(x, x_max_edge, v);
@@ -358,6 +367,11 @@ class Graph
                   D_[y*2    ] = x;
                   D_[y*2 + 1] = y;
                   M_[y] = et;
+
+#pragma omp atomic write
+                  matched_[x] = '1';
+#pragma omp atomic write
+                  matched_[y] = '1';
 
                   deactivate_edge(x, y);
                 }
@@ -387,10 +401,10 @@ class Graph
         {
           // phase #1: compute max edge for every vertex
 #ifdef USE_OMP_OFFLOAD
-#pragma omp target update to(mate_[0:nv_], D_[0:2*nv_], M_[0:nv_]) 
+#pragma omp target update to(mate_[0:nv_], D_[0:2*nv_], M_[0:nv_], matched_[0:nv_]) 
 #pragma omp target teams distribute parallel for 
 #else
-#pragma omp parallel for default(shared) schedule(dynamic) 
+#pragma omp parallel for default(shared) schedule(static) 
 #endif
             for (GraphElem v = 0; v < nv_; v++)
             {
@@ -416,30 +430,27 @@ class Graph
                   D_[v*2 + 1] = v;
                   M_[v]       = et;
 
+#pragma omp atomic write
+                  matched_[u] = '1';
+#pragma omp atomic write
+                  matched_[v] = '1';
+
                   deactivate_edge(v, u);
                   deactivate_edge(u, v);
                 }
               }
             }
 
-          GraphElem seq = 0;
           // phase 2: update matching and match remaining vertices
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target update from(D_[0:2*nv_])
-#pragma omp parallel 
+#pragma omp target teams distribute parallel for 
 #else
-#pragma omp parallel default(shared) 
+#pragma omp parallel for default(shared) schedule(static) 
 #endif
-            while(1)
+            for (GraphElem n = 0; n < 2*nv_; n++)
             { 
-              GraphElem idx;    
-#pragma omp atomic capture
-              idx = seq++;
-
-              if (idx >= 2*nv_)
-                break;
-
-              GraphElem v = D_[idx];
+              GraphElem v = D_[n];
               if (v != -1)
                 update_mate(v);
             }
@@ -461,7 +472,8 @@ class Graph
         GraphElem nv_, ne_;
         GraphElem* mate_;
         GraphElem* D_;
-        EdgeTuple* M_;  
+        EdgeTuple* M_;
+        char* matched_;  
 };
 
 // read in binary edge list files using POSIX I/O

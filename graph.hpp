@@ -445,7 +445,6 @@ class Graph
 
           // phase 2: update matching and match remaining vertices
 #ifdef USE_OMP_OFFLOAD
-#pragma omp target update from(D_[0:2*nv_])
 #pragma omp target teams distribute parallel for 
 #else
 #pragma omp parallel for default(shared) schedule(static) 

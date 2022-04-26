@@ -226,7 +226,7 @@ class Graph
             bool success = true;
             for (GraphElem i = 0; i < nv_; i++)
             {
-              if ((M_[i].ij_[0] != -1) && (M_[i].ij_[0] != -1))
+              if ((M_[i].ij_[0] != -1) && (M_[i].ij_[1] != -1))
               {
                 if ((mate_[mate_[M_[i].ij_[0]]] != M_[i].ij_[0])
                     || (mate_[mate_[M_[i].ij_[1]]] != M_[i].ij_[1]))

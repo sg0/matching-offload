@@ -202,7 +202,7 @@ class Graph
         {
           GraphElem count = 0;
           for (GraphElem i = 0; i < nv_; i++)
-            if ((M_[i].ij_[0] != -1) && (M_[i].ij_[0] != -1))
+            if ((M_[i].ij_[0] != -1) && (M_[i].ij_[1] != -1))
               count++;
           return count;
         }
@@ -212,7 +212,7 @@ class Graph
             std::cout << "Matched vertices: " << std::endl;
             for (GraphElem i = 0; i < nv_; i++)
             {
-              if ((M_[i].ij_[0] != -1) && (M_[i].ij_[0] != -1))
+              if ((M_[i].ij_[0] != -1) && (M_[i].ij_[1] != -1))
               {
                 std::cout << M_[i].ij_[0] << " ---- " << M_[i].ij_[1] << std::endl;
               }

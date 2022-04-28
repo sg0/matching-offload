@@ -226,7 +226,7 @@ class Graph
             bool success = true;
             for (GraphElem i = 0; i < nv_; i++)
             {
-              if ((M_[i].ij_[0] != -1) && (M_[i].ij_[1] != -1))
+              if ((M_[i].ij_[0] != -1) && (M_[i].ij_[0] != -1))
               {
                 if ((mate_[mate_[M_[i].ij_[0]]] != M_[i].ij_[0])
                     || (mate_[mate_[M_[i].ij_[1]]] != M_[i].ij_[1]))
@@ -291,43 +291,35 @@ class Graph
         
         inline void heaviest_edge_unmatched(GraphElem v, Edge& max_edge, GraphElem x = -1)
         {
-            GraphElem e0, e1;
-            edge_range(v, e0, e1);
+          GraphElem e0, e1;
+          edge_range(v, e0, e1);
 
-            for (GraphElem e = e0; e < e1; e++)
+          for (GraphElem e = e0; e < e1; e++)
+          {
+            EdgeActive& edge = get_active_edge(e);
+            if (edge.active_)
             {
-              EdgeActive& edge = get_active_edge(e);
-              if (edge.active_)
+              if (edge.edge_->tail_ == x)
+                continue;
+
+              if (edge.edge_->weight_ > max_edge.weight_)
+                max_edge = *edge.edge_;
+
+              // break tie using vertex index
+              if (edge.edge_->weight_ == max_edge.weight_)
               {
-                if (edge.edge_->tail_ == x)
-                  continue;
-
-                if ((mate_[edge.edge_->tail_] == -1) 
-                    || (mate_[mate_[edge.edge_->tail_]] 
-                      != edge.edge_->tail_))
-                {
-                  if (edge.edge_->weight_ > max_edge.weight_)
-                    max_edge = *edge.edge_;
-
-                  // break tie using vertex index
-                  if (edge.edge_->weight_ == max_edge.weight_)
-                  {
-                    if (edge.edge_->tail_ > max_edge.tail_)
-                      max_edge = *edge.edge_;
-                  }
-                }
+                if (edge.edge_->tail_ > max_edge.tail_)
+                  max_edge = *edge.edge_;
               }
             }
+          }
         }
 
         // check if mate[x] = v and mate[v] != x
         // if yes, compute mate[x]
-        inline void update_mate(GraphElem v)
+        inline void update_mate(GraphElem v, GraphElem& seq)
         {
-          GraphElem e0, e1, y;
-          bool is_matched;
-          char match_x, match_v;
-          GraphElem mate_y, mate_x;
+          GraphElem e0, e1;
 
           edge_range(v, e0, e1);
           
@@ -335,47 +327,66 @@ class Graph
           {
             Edge const& edge = get_edge(e);
             GraphElem const& x = edge.tail_;
+            char match_x, match_v;
 
 #pragma omp atomic read
             match_x = matched_[x];
+
 #pragma omp atomic read
             match_v = matched_[v];
-            
-            is_matched = (match_x == '1') && (match_v == '1');
+
+            GraphElem mate_x;
 
 #pragma omp atomic read
             mate_x = mate_[x];
 
-            //  mate[x] == v and (v,x) not in M
-            if ((mate_x == v) && !is_matched)
+            //  mate[x] == v and x not in M
+            if ((mate_x == v) && (match_x == '0') && (match_v == '0'))
             {
               Edge x_max_edge;
+              
               heaviest_edge_unmatched(x, x_max_edge, v);
+
+              GraphElem y;
 
 #pragma omp atomic write
               mate_[x] = x_max_edge.tail_;
+
 #pragma omp atomic read
               y = mate_[x];
 
               if (y != -1) // if x has no neighbor other than v
               {
+                GraphElem mate_y;
+
 #pragma omp atomic read
                 mate_y = mate_[y];
 
                 if (mate_y == x) // matched
                 {
+                  GraphElem idx;
                   EdgeTuple et(x, y, x_max_edge.weight_); 
 
-                  D_[y*2    ] = x;
-                  D_[y*2 + 1] = y;
-                  M_[y]       = et;
+#pragma omp atomic capture
+                  idx = seq++;
+                 
+                  D_[idx] = x;
+                  M_[idx] = et;
+
+#pragma omp atomic capture
+                  idx = seq++;
+
+                  D_[idx] = y;
+
 
 #pragma omp atomic write
                   matched_[x] = '1';
+
 #pragma omp atomic write
                   matched_[y] = '1';
 
                   deactivate_edge(x, y);
+                  deactivate_edge(y, x);
                 }
               }
             }
@@ -390,7 +401,7 @@ class Graph
             for (GraphElem e = e0; e < e1; e++)
             {
                 EdgeActive& edge = get_active_edge(e);
-                if (edge.edge_->tail_ == y)
+                if (edge.edge_->tail_ == y && edge.active_)
                 {
                     edge.active_ = false;
                     break;
@@ -401,6 +412,8 @@ class Graph
         // maximal edge matching using OpenMP
         inline void maxematch()
         {
+          GraphElem seq = 0;
+          
           // phase #1: compute max edge for every vertex
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target update to(mate_[0:nv_], D_[0:2*nv_], M_[0:nv_], matched_[0:nv_]) 
@@ -408,57 +421,85 @@ class Graph
 #else
 #pragma omp parallel for default(shared) schedule(static) 
 #endif
-            for (GraphElem v = 0; v < nv_; v++)
-            {
-              Edge max_edge;
+          for (GraphElem v = 0; v < nv_; v++)
+          {
+            Edge max_edge;
 
-              heaviest_edge_unmatched(v, max_edge);
+            heaviest_edge_unmatched(v, max_edge);
 
-              GraphElem u = mate_[v] = max_edge.tail_; // v's mate
-
-              if (u != -1)
-              { 
-                GraphElem mate_u;
+            GraphElem u;
+            
+#pragma omp atomic write
+            mate_[v] = max_edge.tail_; // v's mate
 
 #pragma omp atomic read
-                mate_u = mate_[u];
+            u = mate_[v];
 
-                // is mate[u] == v?
-                if (mate_u == v) // matched
-                {                    
-                  EdgeTuple et(u, v, max_edge.weight_);
-                  
-                  D_[v*2]     = u;
-                  D_[v*2 + 1] = v;
-                  M_[v]       = et;
+            if (u != -1)
+            { 
+              GraphElem mate_u;
+
+#pragma omp atomic read
+              mate_u = mate_[u];
+
+              // is mate[u] == v?
+              if (mate_u == v) // matched
+              {                    
+                EdgeTuple et(u, v, max_edge.weight_);
+                
+                GraphElem idx;
+
+#pragma omp atomic capture
+                idx = seq++;
+
+                D_[idx]     = u;
+                M_[idx]     = et;
+
+#pragma omp atomic capture
+                idx = seq++;
+
+                D_[idx] = v;
 
 #pragma omp atomic write
-                  matched_[u] = '1';
-#pragma omp atomic write
-                  matched_[v] = '1';
+                matched_[u] = '1';
 
-                  deactivate_edge(v, u);
-                  deactivate_edge(u, v);
-                }
+#pragma omp atomic write
+                matched_[v] = '1';
+
+                deactivate_edge(v, u);
+                deactivate_edge(u, v);
               }
             }
+          }
+            
+          GraphElem rseq = 0;
 
           // phase 2: update matching and match remaining vertices
 #ifdef USE_OMP_OFFLOAD
-#pragma omp target teams distribute parallel for 
+#pragma omp target update from(D_[0:2*nv_])
+#pragma omp parallel
 #else
-#pragma omp parallel for default(shared) schedule(static) 
+#pragma omp parallel default(shared)
 #endif
-            for (GraphElem n = 0; n < 2*nv_; n++)
-            { 
-              GraphElem v = D_[n];
-              if (v != -1)
-                update_mate(v);
-            }
+          while(1)
+          {
+            GraphElem idx;
+
+#pragma omp atomic capture
+            idx = rseq++;
+
+            if (idx >= 2*nv_)
+              break;
+
+            GraphElem v = D_[idx];
+            if (v != -1)
+              update_mate(v, seq);
+          }
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target update from(mate_[0:nv_], M_[0:nv_])
-#endif 
-        } 
+#endif
+        }
+ 
 
         EdgeActive *edge_active_;
         GraphElem *edge_indices_;

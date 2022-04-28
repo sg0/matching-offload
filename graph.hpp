@@ -289,27 +289,33 @@ class Graph
         }
                 
         
-        inline void heaviest_edge_unmatched(GraphElem v, Edge& max_edge, GraphElem x = -1)
+        inline void heaviest_edge_unmatched(GraphElem v, Edge& max_edge)
         {
-          GraphElem e0, e1;
+          GraphElem e0, e1, m_c, m_m_c;
           edge_range(v, e0, e1);
 
           for (GraphElem e = e0; e < e1; e++)
           {
             EdgeActive& edge = get_active_edge(e);
+            
             if (edge.active_)
             {
-              if (edge.edge_->tail_ == x)
-                continue;
-
-              if (edge.edge_->weight_ > max_edge.weight_)
-                max_edge = *edge.edge_;
-
-              // break tie using vertex index
-              if (edge.edge_->weight_ == max_edge.weight_)
+#pragma omp atomic read
+              m_c = mate_[edge.edge_->tail_];
+#pragma omp atomic read
+              m_m_c = mate_[mate_[edge.edge_->tail_]]; 
+              
+              if ((m_c == -1) || (m_m_c != edge.edge_->tail_))
               {
-                if (edge.edge_->tail_ > max_edge.tail_)
+                if (edge.edge_->weight_ > max_edge.weight_)
                   max_edge = *edge.edge_;
+
+                // break tie using vertex index
+                if (edge.edge_->weight_ == max_edge.weight_)
+                {
+                  if (edge.edge_->tail_ > max_edge.tail_)
+                    max_edge = *edge.edge_;
+                }
               }
             }
           }
@@ -322,30 +328,27 @@ class Graph
           GraphElem e0, e1;
 
           edge_range(v, e0, e1);
-          
+
+#pragma omp parallel for default(shared) if ((e1 - e0) > 50)
           for (GraphElem e = e0; e < e1; e++)
           {
             Edge const& edge = get_edge(e);
             GraphElem const& x = edge.tail_;
             char match_x, match_v;
+            GraphElem mate_x;
 
 #pragma omp atomic read
             match_x = matched_[x];
 
 #pragma omp atomic read
-            match_v = matched_[v];
-
-            GraphElem mate_x;
-
-#pragma omp atomic read
             mate_x = mate_[x];
 
             //  mate[x] == v and x not in M
-            if ((mate_x == v) && (match_x == '0') && (match_v == '0'))
+            if ((mate_x == v) && (match_x == '0'))
             {
               Edge x_max_edge;
               
-              heaviest_edge_unmatched(x, x_max_edge, v);
+              heaviest_edge_unmatched(x, x_max_edge);
 
               GraphElem y;
 
@@ -385,8 +388,8 @@ class Graph
 #pragma omp atomic write
                   matched_[y] = '1';
 
-                  deactivate_edge(x, y);
                   deactivate_edge(y, x);
+                  deactivate_edge(x, y);
                 }
               }
             }
@@ -401,7 +404,7 @@ class Graph
             for (GraphElem e = e0; e < e1; e++)
             {
                 EdgeActive& edge = get_active_edge(e);
-                if (edge.edge_->tail_ == y && edge.active_)
+                if (edge.edge_->tail_ == y)
                 {
                     edge.active_ = false;
                     break;
@@ -472,32 +475,24 @@ class Graph
             }
           }
             
-          GraphElem rseq = 0;
+          GraphElem idx = 0;
 
           // phase 2: update matching and match remaining vertices
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target update from(D_[0:2*nv_])
-#pragma omp parallel
-#else
-#pragma omp parallel default(shared)
+#pragma omp target update from(mate_[0:nv_], M_[0:nv_])
 #endif
           while(1)
           {
-            GraphElem idx;
-
-#pragma omp atomic capture
-            idx = rseq++;
-
-            if (idx >= 2*nv_)
+            if (idx == 2*nv_)
               break;
 
             GraphElem v = D_[idx];
             if (v != -1)
               update_mate(v, seq);
+
+            idx++;
           }
-#ifdef USE_OMP_OFFLOAD
-#pragma omp target update from(mate_[0:nv_], M_[0:nv_])
-#endif
         }
  
 

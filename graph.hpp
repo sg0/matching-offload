@@ -397,7 +397,7 @@ class Graph
 #else
 #pragma omp parallel for default(shared) schedule(static) 
 #endif
-          for (GraphElem x = 0; x < 2*nv_; x++)
+          for (GraphElem x = 0; x < nmatches_; x++)
           {
             if (D_[x] != -1)
               update_mate(D_[x]);

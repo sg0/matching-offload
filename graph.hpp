@@ -126,12 +126,6 @@ class Graph
         Edge& set_edge(GraphElem const index)
         { return edge_list_[index]; }       
                 
-        EdgeActive const& get_active_edge(GraphElem const index) const
-        { return edge_active_[index]; }
-         
-        EdgeActive& get_active_edge(GraphElem const index)
-        { return edge_active_[index]; }
- 
         // print edge list (with weights)
         void print(bool print_weight = true) const
         {
@@ -251,7 +245,6 @@ class Graph
           std::cout << "Standard deviation: " << pstddev << std::endl;
           std::cout << "--------------------------------------" << std::endl;
         }
-                
         
         inline void heaviest_edge_unmatched(GraphElem v, Edge* max_edge)
         {
@@ -260,23 +253,27 @@ class Graph
 
           for (GraphElem e = e0; e < e1; e++)
           {
-            EdgeActive& edge = get_active_edge(e);
-            
-            if (edge.active_)
-            {
-              m_c = mate_[edge.edge_->tail_];
-              m_m_c = mate_[mate_[edge.edge_->tail_]]; 
+            if (edge_active_[e].active_)
+            {                    
+              m_c = mate_[edge_active_[e].edge_->tail_];
+              m_m_c = mate_[mate_[edge_active_[e].edge_->tail_]]; 
               
-              if ((m_c == -1) || (m_m_c != edge.edge_->tail_))
+              if ((m_c == -1) || (m_m_c != edge_active_[e].edge_->tail_))
               {
-                if (edge.edge_->weight_ > max_edge->weight_)
-                  max_edge = edge.edge_;
+                if (edge_active_[e].edge_->weight_ > max_edge->weight_)
+                {
+                  max_edge->weight_ = edge_active_[e].edge_->weight_;
+                  max_edge->tail_ = edge_active_[e].edge_->tail_;
+                }
 
                 // break tie using vertex index
-                if (edge.edge_->weight_ == max_edge->weight_)
+                if (edge_active_[e].edge_->weight_ == max_edge->weight_)
                 {
-                  if (edge.edge_->tail_ > max_edge->tail_)
-                    max_edge = edge.edge_;
+                  if (edge_active_[e].edge_->tail_ > max_edge->tail_)
+                  {
+                    max_edge->weight_ = edge_active_[e].edge_->weight_;
+                    max_edge->tail_ = edge_active_[e].edge_->tail_;
+                  }
                 }
               }
             }
@@ -286,8 +283,10 @@ class Graph
         inline bool matching_search(GraphElem v) const
         {
           for (GraphElem i = 0; i < nmatches_; i++)
+          {
             if (D_[i] == v)
               return true;
+          }
           return false;
         }
 
@@ -299,7 +298,6 @@ class Graph
 
           edge_range(v, e0, e1);
 
-#pragma omp parallel for default(shared) if ((e1 - e0) > 50)
           for (GraphElem e = e0; e < e1; e++)
           {
             Edge const& edge = get_edge(e);
@@ -315,17 +313,11 @@ class Graph
               
               heaviest_edge_unmatched(x, &x_max_edge);
 
-              GraphElem y;
-
-              mate_[x] = x_max_edge.tail_;
-
-              y = mate_[x];
+              GraphElem y = mate_[x] = x_max_edge.tail_;
 
               if (y != -1) // if x has no neighbor other than v
               {
-                GraphElem mate_y;
-
-                mate_y = mate_[y];
+                GraphElem mate_y = mate_[y];
 
                 if (mate_y == x) // matched
                 {
@@ -350,10 +342,9 @@ class Graph
             edge_range(x, e0, e1);
             for (GraphElem e = e0; e < e1; e++)
             {
-                EdgeActive& edge = get_active_edge(e);
-                if (edge.edge_->tail_ == y)
+                if (edge_active_[e].edge_->tail_ == y)
                 {
-                    edge.active_ = false;
+                    edge_active_[e].active_ = false;
                     break;
                 }
             }
@@ -365,6 +356,9 @@ class Graph
           // phase #1: compute max edge for every vertex
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target update to(nmatches_)
+#pragma omp target update to(edge_indices_[0:nv_+1])
+#pragma omp target update to(edge_list_[0:ne_])
+#pragma omp target update to(edge_active_[0:ne_])
 #pragma omp target update to(mate_[0:nv_], D_[0:2*nv_]) 
 #pragma omp target teams distribute parallel for 
 #else
@@ -372,12 +366,11 @@ class Graph
 #endif
           for (GraphElem v = 0; v < nv_; v++)
           {
+
             Edge max_edge;
-
             heaviest_edge_unmatched(v, &max_edge);
-            mate_[v] = max_edge.tail_; // v's mate
-
-            GraphElem u = mate_[v];
+            
+            GraphElem u = mate_[v] = max_edge.tail_; // v's mate
 
             if (u != -1)
             { 
@@ -410,7 +403,7 @@ class Graph
               update_mate(D_[x]);
           }
         }
- 
+
         EdgeActive *edge_active_;
         GraphElem *edge_indices_;
         Edge *edge_list_;

@@ -22,10 +22,9 @@
 class Graph
 {
     public:
-        Graph(): nv_(-1), ne_(-1), 
+        Graph(): nv_(-1), ne_(-1), nmatches_(0), 
                  edge_indices_(nullptr), edge_list_(nullptr),
-                 edge_active_(nullptr), mate_(nullptr), D_(nullptr),
-                 nmatches_(0) 
+                 edge_active_(nullptr), mate_(nullptr), D_(nullptr)
         {}
                 
         Graph(GraphElem nv): 
@@ -33,14 +32,14 @@ class Graph
             edge_list_(nullptr), edge_active_(nullptr)
         {
             edge_indices_   = new GraphElem[nv_+1];
-            D_              = new GraphElem[nv_*2];
+            D_              = new GraphElem[nv_];
             mate_           = new GraphElem[nv_];
-            std::fill(D_, D_ + nv_*2, -1);
+            std::fill(D_, D_ + nv_, -1);
             std::fill(mate_, mate_ + nv_, -1);
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target enter data map(to:this[:1])
 #pragma omp target enter data map(alloc:edge_indices_[0:nv_+1])
-#pragma omp target enter data map(alloc:D_[0:nv_*2])
+#pragma omp target enter data map(alloc:D_[0:nv_])
 #pragma omp target enter data map(alloc:mate_[0:nv_])
 #endif
         }
@@ -51,16 +50,16 @@ class Graph
             edge_indices_   = new GraphElem[nv_+1];
             edge_list_      = new Edge[ne_];
             edge_active_    = new EdgeActive[ne_];
-            D_              = new GraphElem[nv_*2];
+            D_              = new GraphElem[nv_];
             mate_           = new GraphElem[nv_];
-            std::fill(D_, D_ + nv_*2, -1);
+            std::fill(D_, D_ + nv_, -1);
             std::fill(mate_, mate_ + nv_, -1);
 #ifdef USE_OMP_OFFLOAD
 #pragma omp target enter data map(to:this[:1])
 #pragma omp target enter data map(alloc:edge_indices_[0:nv_+1])
 #pragma omp target enter data map(alloc:edge_list_[0:ne_])
 #pragma omp target enter data map(alloc:edge_active_[0:ne_])
-#pragma omp target enter data map(alloc:D_[0:nv_*2])
+#pragma omp target enter data map(alloc:D_[0:nv_])
 #pragma omp target enter data map(alloc:mate_[0:nv_])
 #endif
         }
@@ -73,7 +72,7 @@ class Graph
 #pragma omp target exit data map(delete:edge_list_[0:ne_])
 #pragma omp target exit data map(delete:edge_active_[0:ne_])
 #pragma omp target exit data map(delete:mate_[0:nv_])
-#pragma omp target exit data map(delete:D_[0:nv_*2])
+#pragma omp target exit data map(delete:D_[0:nv_])
 #endif
             delete [] edge_indices_;
             delete [] edge_list_;
@@ -178,7 +177,7 @@ class Graph
         }
        
         // #edges in matched set  
-        GraphElem print_M() const {  return nmatches_; }
+        GraphElem print_M() const { return nmatches_; }
          
         // if mate[mate[v]] == v then
         // we're good
@@ -246,7 +245,7 @@ class Graph
           std::cout << "--------------------------------------" << std::endl;
         }
         
-        inline void heaviest_edge_unmatched(GraphElem v, Edge* max_edge)
+        inline void heaviest_edge_unmatched(GraphElem v, Edge* max_edge, GraphElem x = -1)
         {
           GraphElem e0, e1, m_c, m_m_c;
           edge_range(v, e0, e1);
@@ -254,10 +253,13 @@ class Graph
           for (GraphElem e = e0; e < e1; e++)
           {
             if (edge_active_[e].active_)
-            {                    
+            {   
+              if (edge_active_[e].edge_->tail_ == x)
+                continue;   
+             
               m_c = mate_[edge_active_[e].edge_->tail_];
               m_m_c = mate_[mate_[edge_active_[e].edge_->tail_]]; 
-              
+                                  
               if ((m_c == -1) || (m_m_c != edge_active_[e].edge_->tail_))
               {
                 if (edge_active_[e].edge_->weight_ > max_edge->weight_)
@@ -282,11 +284,8 @@ class Graph
 
         inline bool matching_search(GraphElem v) const
         {
-          for (GraphElem i = 0; i < nmatches_; i++)
-          {
-            if (D_[i] == v)
-              return true;
-          }
+          if (D_[v] == 1)
+            return true;
           return false;
         }
 
@@ -310,8 +309,7 @@ class Graph
             if (mate_x == v && !match_x)
             {
               Edge x_max_edge;
-              
-              heaviest_edge_unmatched(x, &x_max_edge);
+              heaviest_edge_unmatched(x, &x_max_edge, v);
 
               GraphElem y = mate_[x] = x_max_edge.tail_;
 
@@ -321,11 +319,8 @@ class Graph
 
                 if (mate_y == x) // matched
                 {
-                  D_[nmatches_  ] = x;
-                  D_[nmatches_+1] = y;
-
-#pragma omp atomic update
-                  nmatches_ += 2;
+                  D_[x] = 1;
+                  D_[y] = 1;
 
                   deactivate_edge(y, x);
                   deactivate_edge(x, y);
@@ -355,18 +350,16 @@ class Graph
         {
           // phase #1: compute max edge for every vertex
 #ifdef USE_OMP_OFFLOAD
-#pragma omp target update to(nmatches_)
 #pragma omp target update to(edge_indices_[0:nv_+1])
 #pragma omp target update to(edge_list_[0:ne_])
 #pragma omp target update to(edge_active_[0:ne_])
-#pragma omp target update to(mate_[0:nv_], D_[0:2*nv_]) 
+#pragma omp target update to(mate_[0:nv_], D_[0:nv_]) 
 #pragma omp target teams distribute parallel for 
 #else
 #pragma omp parallel for default(shared) schedule(static) 
 #endif
           for (GraphElem v = 0; v < nv_; v++)
           {
-
             Edge max_edge;
             heaviest_edge_unmatched(v, &max_edge);
             
@@ -379,29 +372,32 @@ class Graph
               // is mate[u] == v?
               if (mate_u == v) // matched
 	      {                    
-		      D_[nmatches_  ] = u;
-		      D_[nmatches_+1] = v;
+		  D_[u] = 1;
+		  D_[v] = 1;
 
-#pragma omp atomic update
-		      nmatches_ += 2;
-
-		      deactivate_edge(v, u);
-		      deactivate_edge(u, v);
+		  deactivate_edge(v, u);
+		  deactivate_edge(u, v);
 	      }
             }
           }
             
           // phase 2: update matching and match remaining vertices
 #ifdef USE_OMP_OFFLOAD
-#pragma omp target teams distribute parallel for 
+#pragma omp target teams distribute parallel for reduction(+:nmatches_)
 #else
-#pragma omp parallel for default(shared) schedule(static) 
+#pragma omp parallel for reduction(+:nmatches_) default(shared) schedule(static) 
 #endif
-          for (GraphElem x = 0; x < nmatches_; x++)
+          for (GraphElem x = 0; x < nv_; x++)
           {
             if (D_[x] != -1)
-              update_mate(D_[x]);
+            {
+              update_mate(x);
+              nmatches_++;
+            }
           }
+#ifdef USE_OMP_OFFLOAD
+#pragma omp target update from(mate_[0:nv_], D_[0:nv_])
+#endif
         }
 
         EdgeActive *edge_active_;

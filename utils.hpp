@@ -45,32 +45,36 @@ using GraphWeight = double;
 #pragma omp declare target
 #endif
 #ifdef EDGE_AS_VERTEX_PAIR
-struct Edge
+typedef struct Edge
 {   
     GraphElem head_, tail_;
     GraphWeight weight_;
     
     Edge(): head_(-1), tail_(-1), weight_(0) 
     {}
-};
+} Edge;
 #else
-struct Edge
+typedef struct Edge
 {   
     GraphElem tail_;
     GraphWeight weight_;
     
     Edge(): tail_(-1), weight_(0) {}
-};
+} Edge;
 #endif
 
-struct EdgeActive
+typedef struct EdgeActive
 {
     Edge* edge_;
     bool active_;
 
     EdgeActive(Edge* edge): edge_(edge), active_(true) {}
     EdgeActive(): edge_(nullptr), active_(true) {}
-};
+} EdgeActive;
+
+#ifdef USE_OMP_OFFLOAD
+#pragma omp end declare target
+#endif
 
 struct EdgeTuple
 {
@@ -87,9 +91,6 @@ struct EdgeTuple
         ij_{-1, -1}, w_(0.0)
     {}
 };
-#ifdef USE_OMP_OFFLOAD
-#pragma omp end declare target
-#endif
 
 extern unsigned seed;
 

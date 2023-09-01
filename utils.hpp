@@ -63,15 +63,6 @@ typedef struct Edge
 } Edge;
 #endif
 
-typedef struct EdgeActive
-{
-    Edge* edge_;
-    bool active_;
-
-    EdgeActive(Edge* edge): edge_(edge), active_(true) {}
-    EdgeActive(): edge_(nullptr), active_(true) {}
-} EdgeActive;
-
 #ifdef USE_OMP_OFFLOAD
 #pragma omp end declare target
 #endif

@@ -29,7 +29,9 @@ and specific compiler options.
 
 If you are running the code on a multi-socket system, pass
 -DGRAPH_FT_LOAD=<x> while building where x == #sockets or 
-#NUMA-nodes (it is 1 by default) to leverage first-touch access.
+#NUMA-nodes (it is 1 by default) to leverage first-touch access. 
+If #threads > #vertices, there can be issues, use default or 
+do not pass this macro in case of issues.
 
 -----
 Input
